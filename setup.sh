@@ -257,8 +257,7 @@ echo -e "${YELLOW}[3/3] Setting up Python environment...${NC}"
 # Check Python version
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}ERROR: python3 is not installed!${NC}"
-    echo "Install with: sudo apt-get install python3 python3-pip python3-venv"
-    exit 1
+    sudo apt-get install python3 python3-pip python3-venv || exit 1
 fi
 
 PYTHON_VERSION=$(python3 --version | awk '{print $2}')
@@ -267,8 +266,7 @@ echo "Found Python version: $PYTHON_VERSION"
 # Check if venv module is available
 if ! python3 -m venv --help &> /dev/null; then
     echo -e "${RED}ERROR: python3-venv is not installed!${NC}"
-    echo "Install with: sudo apt-get install python3-venv"
-    exit 1
+    sudo apt-get install python3-venv || exit 1
 fi
 
 # Create virtual environment if it doesn't exist
