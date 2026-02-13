@@ -46,6 +46,30 @@ else
     echo -e "${GREEN}✓ build-essential is installed${NC}"
 fi
 
+# Check for gnupg
+if ! command -v gpg &> /dev/null; then
+    echo -e "${YELLOW}⚠ gnupg not found${NC}"
+    MISSING_PACKAGES+=("gnupg")
+else
+    echo -e "${GREEN}✓ gnupg is installed${NC}"
+fi
+
+# Check for wget
+if ! command -v wget &> /dev/null; then
+    echo -e "${YELLOW}⚠ wget not found${NC}"
+    MISSING_PACKAGES+=("wget")
+else
+    echo -e "${GREEN}✓ wget is installed${NC}"
+fi
+
+# Check for software-properties-common (check for add-apt-repository as indicator)
+if ! command -v add-apt-repository &> /dev/null; then
+    echo -e "${YELLOW}⚠ software-properties-common not found${NC}"
+    MISSING_PACKAGES+=("software-properties-common")
+else
+    echo -e "${GREEN}✓ software-properties-common is installed${NC}"
+fi
+
 # Install missing packages if any
 if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
     echo ""
