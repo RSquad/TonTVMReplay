@@ -19,10 +19,35 @@ The tool uses **dual-emulator comparison**:
 
 ### Prerequisites
 - Python 3.8+
-- TON emulator shared library (`.so` file)
+- Rust (for building Rust emulator) - [Install from rustup.rs](https://rustup.rs/)
+- C++ build tools (for building C++ emulator): `cmake`, `g++`, `clang`
+- Git with SSH access to GitHub (for Rust emulator)
 - Access to a TON liteserver
 
-### Setup
+### Quick Setup (Automated)
+
+**Recommended**: Use the automated setup script that builds both emulators and sets up Python environment:
+
+```bash
+git clone https://github.com/disintar/TonTVMReplay.git
+cd TonTVMReplay
+./setup.sh
+```
+
+The script will:
+1. ✅ Build **Rust emulator** from [RSquad/ton-node](https://github.com/RSquad/ton-node) (branch: tvm-emulator0)
+2. ✅ Build **C++ emulator** from [ton-blockchain/ton](https://github.com/ton-blockchain/ton)
+3. ✅ Create Python virtual environment and install dependencies
+4. ✅ Install TonTVMReplay package
+
+**Quick run** after setup:
+```bash
+./run.sh  # Automatically loads .env and runs tonemuso
+```
+
+### Manual Setup
+
+If you prefer manual installation or already have emulator binaries:
 
 1. Clone the repository:
 ```bash
@@ -30,23 +55,25 @@ git clone https://github.com/disintar/TonTVMReplay.git
 cd TonTVMReplay
 ```
 
-2. Create virtual environment and install dependencies:
+2. Place emulator libraries:
+   - Rust emulator: `rust/libemulator.so`
+   - C++ emulator: `cpp/libemulator.so`
+
+3. Create virtual environment and install dependencies:
 ```bash
 python3 -m venv my_venv
 source my_venv/bin/activate
 pip install -r requirements.txt
-```
-
-3. Install the package:
-```bash
 pip install -e .
 ```
 
-4. Configure environment variables (see [Configuration](#configuration))
+4. Configure environment variables in `.env` file (see [Configuration](#configuration))
 
 5. Run:
 ```bash
+source .env
 tonemuso
+# or use: ./run.sh
 ```
 
 ## Usage Scenarios
