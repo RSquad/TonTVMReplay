@@ -162,3 +162,8 @@ cython_debug/
 failed_txs.json
 test.json
 failed_traces.json
+
+# Project-specific directories
+my_venv/
+cpp/
+rust/
