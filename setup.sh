@@ -16,6 +16,57 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # ==============================================================================
+# Step 0: Check and Install Essential Build Tools
+# ==============================================================================
+echo -e "${YELLOW}[0/3] Checking essential build tools...${NC}"
+
+MISSING_PACKAGES=()
+
+# Check for cmake
+if ! command -v cmake &> /dev/null; then
+    echo -e "${YELLOW}⚠ cmake not found${NC}"
+    MISSING_PACKAGES+=("cmake")
+else
+    echo -e "${GREEN}✓ cmake is installed${NC}"
+fi
+
+# Check for lsb-release
+if ! command -v lsb_release &> /dev/null; then
+    echo -e "${YELLOW}⚠ lsb-release not found${NC}"
+    MISSING_PACKAGES+=("lsb-release")
+else
+    echo -e "${GREEN}✓ lsb-release is installed${NC}"
+fi
+
+# Check for build-essential (check for g++ as indicator)
+if ! command -v g++ &> /dev/null; then
+    echo -e "${YELLOW}⚠ build-essential (g++) not found${NC}"
+    MISSING_PACKAGES+=("build-essential")
+else
+    echo -e "${GREEN}✓ build-essential is installed${NC}"
+fi
+
+# Install missing packages if any
+if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${YELLOW}Installing missing packages: ${MISSING_PACKAGES[*]}${NC}"
+    
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update
+        sudo apt-get install -y "${MISSING_PACKAGES[@]}"
+        echo -e "${GREEN}✓ Essential build tools installed successfully${NC}"
+    else
+        echo -e "${RED}ERROR: apt-get not found. Cannot install packages automatically.${NC}"
+        echo "Please install manually: ${MISSING_PACKAGES[*]}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✓ All essential build tools are installed${NC}"
+fi
+
+echo ""
+
+# ==============================================================================
 # Step 1: Setup Rust Emulator
 # ==============================================================================
 echo -e "${YELLOW}[1/3] Checking Rust emulator...${NC}"
@@ -72,19 +123,6 @@ if [ -d "cpp" ] && [ -f "cpp/libemulator.so" ]; then
     echo -e "${GREEN}✓ C++ emulator already exists at cpp/libemulator.so${NC}"
 else
     echo -e "${YELLOW}Building C++ emulator from ton-blockchain/ton...${NC}"
-    
-    # Check for required build tools
-    if ! command -v cmake &> /dev/null; then
-        echo -e "${RED}ERROR: cmake is not installed!${NC}"
-        sudo apt update && sudo apt install -y cmake lsb-release
-        exit 1
-    fi
-    
-    if ! command -v g++ &> /dev/null; then
-        echo -e "${RED}ERROR: g++ is not installed!${NC}"
-        sudo apt update && sudo apt install -y build-essential lsb-release
-        exit 1
-    fi
     
     # Create cpp directory if it doesn't exist
     mkdir -p cpp
