@@ -125,18 +125,15 @@ else
     # Build TON
     echo "Building TON (this may take 10-30 minutes)..."
     cd "$TEMP_CPP_DIR"
-    mkdir -p build
-    cd build
-    
     # Use clang-21 if available (required for TON)
     if command -v clang-21 &> /dev/null; then
         export CC=clang-21
         export CXX=clang++-21
         echo "Using clang-21 for compilation"
     fi
-    
-    cmake -DCMAKE_BUILD_TYPE=Release -GNinja ..
-    cmake --build . --target emulator -j$(nproc)
+    cp assembly/native/build-ubuntu-shared.sh .
+    chmod +x build-ubuntu-shared.sh
+    ./build-ubuntu-shared.sh
     
     # Find and copy emulator library
     EMULATOR_LIB=""
