@@ -303,10 +303,21 @@ class TxStepEmulator:
                 logger.debug(f"Start tx (override in_msg): {lt}, {now}")
 
         # Primary
-        success1 = self._run_primary(override_in_msg if override_in_msg is not None else orig_in_msg,
-                                     now, lt, is_tock)
+        try:
+            success1 = self._run_primary(override_in_msg if override_in_msg is not None else orig_in_msg,
+                                         now, lt, is_tock)
+        except Exception as e:
+            logger.error(f"Primary emulator error (lt={lt}): {e}")
+            success1 = False
+            self.em.transaction = None
+        
         # Secondary (always)
-        success2 = self._run_secondary(orig_in_msg, now, lt, is_tock)
+        try:
+            success2 = self._run_secondary(orig_in_msg, now, lt, is_tock)
+        except Exception as e:
+            logger.error(f"Secondary emulator error (lt={lt}): {e}")
+            success2 = False
+            self.em2.transaction = None
 
         if self.loglevel > 4:
             logger.debug(
