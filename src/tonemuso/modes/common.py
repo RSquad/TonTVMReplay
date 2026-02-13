@@ -1,6 +1,6 @@
 # Shared helpers extracted from main.py to avoid duplication
 from collections import OrderedDict, defaultdict
-import json
+import json as json_module
 from queue import Empty as QueueEmpty
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -167,7 +167,7 @@ def worker_init(preindexed, lcparams, loglevel, color_schema, c7_env, emulator_p
 def process_one_trace_worker(args):
     try:
         tidx, t = args
-        config_override = json.loads(_W_C7_ENV) if _W_C7_ENV else None
+        config_override = json_module.loads(_W_C7_ENV) if _W_C7_ENV else None
         # t must be a TonTrace instance
         tx_order = t.transactions_order_b64
         tx_order_list = [b64_to_hex(h).upper() for h in (tx_order or [])]

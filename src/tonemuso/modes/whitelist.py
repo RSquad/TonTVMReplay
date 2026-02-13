@@ -1,4 +1,4 @@
-import json
+import json as json_module
 from collections import Counter
 from loguru import logger
 from tonpy.blockscanner.blockscanner import *
@@ -66,6 +66,14 @@ def run(cfg: Config):
     unsuccess.extend(tmp_u)
 
     logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {warnings} warnings")
+    
+    # Cleanup multiprocessing resources
+    try:
+        outq.close()
+        outq.join_thread()
+    except Exception:
+        pass
+    
     if unsuccess:
         cnt = Counter()
         for i in unsuccess:
@@ -73,4 +81,4 @@ def run(cfg: Config):
         logger.error(f"Unique addreses errors: {len(cnt)}, most common: ")
         logger.error(cnt.most_common(5))
         with open("failed_txs.json", "w") as f:
-            json.dump(unsuccess, f)
+            json_module.dump(unsuccess, f)
