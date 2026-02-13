@@ -96,7 +96,8 @@ else
         sudo apt-get update
         sudo apt-get install -y build-essential cmake openssl libssl-dev \
             zlib1g-dev gperf wget git curl libreadline-dev ccache libmicrohttpd-dev \
-            pkg-config libsodium-dev libsecp256k1-dev liblz4-dev ninja-build
+            pkg-config libsodium-dev libsecp256k1-dev liblz4-dev ninja-build libtool \
+            autoconf automake libjemalloc-dev
         
         # Install LLVM/Clang 21 (required for TON compilation)
         echo "Installing LLVM/Clang 21..."
