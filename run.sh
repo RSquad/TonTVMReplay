@@ -34,4 +34,22 @@ fi
 # Run tonemuso
 echo "Starting TonTVMReplay..."
 echo "================================================"
-tonemuso "$@"
+
+# Run tonemuso and capture output to log file
+tonemuso "$@" 2>&1 | tee tonemuso_run.log
+
+# Capture exit code
+EXIT_CODE=$?
+
+# Generate report if failed_txs.json exists
+if [ -f "failed_txs.json" ] || [ -f "tonemuso_run.log" ]; then
+    echo ""
+    echo "================================================"
+    echo "Generating emulation report..."
+    echo "================================================"
+    python3 generate_report.py
+fi
+
+# Exit with the original tonemuso exit code
+exit $EXIT_CODE
+
