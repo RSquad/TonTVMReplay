@@ -76,13 +76,13 @@ else
     # Check for required build tools
     if ! command -v cmake &> /dev/null; then
         echo -e "${RED}ERROR: cmake is not installed!${NC}"
-        sudo apt update && sudo apt install -y cmake
+        sudo apt update && sudo apt install -y cmake lsb-release
         exit 1
     fi
     
     if ! command -v g++ &> /dev/null; then
         echo -e "${RED}ERROR: g++ is not installed!${NC}"
-        sudo apt update && sudo apt install -y build-essential
+        sudo apt update && sudo apt install -y build-essential lsb-release
         exit 1
     fi
     
