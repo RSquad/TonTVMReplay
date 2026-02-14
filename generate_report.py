@@ -220,9 +220,12 @@ def generate_report(env_params, failed_txs, analysis, log_stats):
     report.append("3. ERRORS GROUPED BY FAIL REASON")
     report.append("-" * 80)
     
-    for fail_reason, count in analysis['fail_reasons'].most_common():
-        percentage = (count / total_failed * 100) if total_failed > 0 else 0
-        report.append(f"  {fail_reason:<40} {count:>6} ({percentage:>5.1f}%)")
+    if total_failed == 0:
+        report.append("  No errors detected.")
+    else:
+        for fail_reason, count in analysis['fail_reasons'].most_common():
+            percentage = (count / total_failed * 100) if total_failed > 0 else 0
+            report.append(f"  {fail_reason:<40} {count:>6} ({percentage:>5.1f}%)")
     
     report.append("")
     
@@ -230,11 +233,14 @@ def generate_report(env_params, failed_txs, analysis, log_stats):
     report.append("4. MOST FREQUENTLY AFFECTED TRANSACTION FIELDS")
     report.append("-" * 80)
     
-    top_paths = analysis['affected_paths'].most_common(15)
-    for path, count in top_paths:
-        # Simplify path for readability
-        simple_path = path.replace("root['", "").replace("']['", ".").replace("']", "")
-        report.append(f"  {simple_path:<70} {count:>6}")
+    if total_failed == 0:
+        report.append("  No errors detected.")
+    else:
+        top_paths = analysis['affected_paths'].most_common(15)
+        for path, count in top_paths:
+            # Simplify path for readability
+            simple_path = path.replace("root['", "").replace("']['", ".").replace("']", "")
+            report.append(f"  {simple_path:<70} {count:>6}")
     
     report.append("")
     
@@ -242,33 +248,37 @@ def generate_report(env_params, failed_txs, analysis, log_stats):
     report.append("5. ERROR DETAILS BY FAIL REASON")
     report.append("-" * 80)
     
-    for fail_reason, txs in sorted(analysis['error_groups'].items(), key=lambda x: len(x[1]), reverse=True):
-        report.append(f"\n  Fail Reason: {fail_reason} ({len(txs)} occurrences)")
-        report.append("  " + "-" * 76)
-        
-        # Group by address
-        address_count = Counter(tx.get('address', 'unknown') for tx in txs)
-        for addr, count in address_count.most_common(10):
-            report.append(f"    Address: {addr}")
-            report.append(f"    Count:   {count}")
+    if total_failed == 0:
+        report.append("  No errors detected.")
+        report.append("")
+    else:
+        for fail_reason, txs in sorted(analysis['error_groups'].items(), key=lambda x: len(x[1]), reverse=True):
+            report.append(f"\n  Fail Reason: {fail_reason} ({len(txs)} occurrences)")
+            report.append("  " + "-" * 76)
             
-            # Show one example for this address
-            example = next(tx for tx in txs if tx.get('address') == addr)
-            
-            # Show some diff details
-            if 'color_schema_log' in example and 'colors' in example['color_schema_log']:
-                colors = example['color_schema_log']['colors']
-                alarm_fields = [k for k, v in colors.items() if v == 'alarm']
-                if alarm_fields:
-                    report.append(f"    Alarm Fields: {', '.join(alarm_fields[:5])}")
-                    if len(alarm_fields) > 5:
-                        report.append(f"                  ... and {len(alarm_fields) - 5} more")
-            
-            report.append("")
-            
-            if len(address_count) > 10:
-                report.append(f"    ... and {len(address_count) - 10} more addresses")
-                break
+            # Group by address
+            address_count = Counter(tx.get('address', 'unknown') for tx in txs)
+            for addr, count in address_count.most_common(10):
+                report.append(f"    Address: {addr}")
+                report.append(f"    Count:   {count}")
+                
+                # Show one example for this address
+                example = next(tx for tx in txs if tx.get('address') == addr)
+                
+                # Show some diff details
+                if 'color_schema_log' in example and 'colors' in example['color_schema_log']:
+                    colors = example['color_schema_log']['colors']
+                    alarm_fields = [k for k, v in colors.items() if v == 'alarm']
+                    if alarm_fields:
+                        report.append(f"    Alarm Fields: {', '.join(alarm_fields[:5])}")
+                        if len(alarm_fields) > 5:
+                            report.append(f"                  ... and {len(alarm_fields) - 5} more")
+                
+                report.append("")
+                
+                if len(address_count) > 10:
+                    report.append(f"    ... and {len(address_count) - 10} more addresses")
+                    break
     
     report.append("")
     report.append("=" * 80)
@@ -284,24 +294,22 @@ def main():
     env_params = read_env_file(".env")
     failed_txs = read_failed_txs("failed_txs.json")
     
-    if not failed_txs:
-        print("\n" + "=" * 80)
-        print("No failed transactions found or failed_txs.json does not exist.")
-        print("This means all transactions passed successfully! ✓")
-        print("=" * 80 + "\n")
-        return
-    
-    # Analyze errors
-    analysis = analyze_errors(failed_txs)
-    
     # Parse log statistics
     log_stats = parse_tonemuso_log()
+    
+    # Analyze errors (will be empty if no failures)
+    analysis = analyze_errors(failed_txs)
     
     # Generate report
     report = generate_report(env_params, failed_txs, analysis, log_stats)
     
     # Print to console
     print("\n" + report + "\n")
+    
+    # Print additional message if no errors
+    if not failed_txs:
+        print("✓ No errors detected - all transactions passed successfully!")
+        print("")
     
     # Save to file
     output_file = "emulation_report.txt"
@@ -310,11 +318,12 @@ def main():
     
     print(f"Report saved to: {output_file}")
     
-    # Also create pretty JSON for reference
-    with open("failed_txs_pretty.json", "w") as f:
-        json.dump(failed_txs, f, indent=2)
-    
-    print(f"Detailed JSON saved to: failed_txs_pretty.json")
+    # Also create pretty JSON for reference (only if there are failures)
+    if failed_txs:
+        with open("failed_txs_pretty.json", "w") as f:
+            json.dump(failed_txs, f, indent=2)
+        
+        print(f"Detailed JSON saved to: failed_txs_pretty.json")
 
 
 if __name__ == "__main__":
