@@ -162,16 +162,67 @@ def generate_report(env_params, failed_txs, analysis, log_stats):
     report.append("1. ACTIVE CONFIGURATION (.env)")
     report.append("-" * 80)
     
-    important_keys = [
-        'EMULATOR_PATH', 'EMULATOR_UNCHANGED_PATH',
-        'FROM_SEQNO', 'TO_SEQNO',
-        'NPROC', 'CHUNK_SIZE', 'TX_CHUNK_SIZE',
-        'EMUSO_LOGLEVEL', 'COLOR_SCHEMA_PATH'
+    # Define env var groups in logical order (only shown if set)
+    env_groups = [
+        ('Liteserver Configuration', [
+            'LITESERVER_SERVER', 'LITESERVER_PORT', 'LITESERVER_PUBKEY',
+            'LITESERVER_TIMEOUT'
+        ]),
+        ('Emulator Paths', [
+            'EMULATOR_PATH', 'EMULATOR_UNCHANGED_PATH'
+        ]),
+        ('Block Range', [
+            'FROM_SEQNO', 'TO_SEQNO', 'TO_EMULATE_MC_BLOCKS'
+        ]),
+        ('Toncenter API', [
+            'TONCENTER_API', 'TONCENTER_API_KEY',
+            'TONCENTER_TX_HASH', 'TONCENTER_MSG_HASH',
+            'TONCENTER_TRACES_BY_MASTERS'
+        ]),
+        ('Processing Mode', [
+            'TXS_TO_PROCESS_PATH', 'ONLYMC_BLOCK', 'PARSE_OVER_LS'
+        ]),
+        ('Performance', [
+            'NPROC', 'CHUNK_SIZE', 'TX_CHUNK_SIZE'
+        ]),
+        ('Advanced', [
+            'COLOR_SCHEMA_PATH', 'C7_REWRITE', 'EMUSO_LOGLEVEL'
+        ])
     ]
     
-    for key in important_keys:
-        value = env_params.get(key, 'NOT SET')
-        report.append(f"  {key:<30} = {value}")
+    # Collect numbered liteserver configs (1-99)
+    numbered_liteservers = []
+    for i in range(1, 100):
+        if f'LITESERVER_SERVER_{i}' in env_params:
+            numbered_liteservers.extend([
+                f'LITESERVER_SERVER_{i}',
+                f'LITESERVER_PORT_{i}',
+                f'LITESERVER_PUBKEY_{i}'
+            ])
+    
+    if numbered_liteservers:
+        env_groups.insert(0, ('Liteserver Failover', numbered_liteservers))
+    
+    # Print each group
+    for group_name, keys in env_groups:
+        # Check if any key in this group is set
+        group_values = [(key, env_params.get(key)) for key in keys if key in env_params]
+        
+        if group_values:
+            report.append(f"  {group_name}:")
+            for key, value in group_values:
+                report.append(f"    {key:<28} = {value}")
+    
+    # Show any other env vars not in predefined groups
+    all_known_keys = set()
+    for _, keys in env_groups:
+        all_known_keys.update(keys)
+    
+    other_keys = sorted([k for k in env_params.keys() if k not in all_known_keys])
+    if other_keys:
+        report.append(f"  Other:")
+        for key in other_keys:
+            report.append(f"    {key:<28} = {env_params[key]}")
     
     report.append("")
     
