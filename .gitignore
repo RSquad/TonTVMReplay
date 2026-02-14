@@ -160,8 +160,10 @@ cython_debug/
 .idea/
 
 failed_txs.json
+failed_txs_pretty.json
 test.json
 failed_traces.json
+emulation_report.txt
 
 # Project-specific directories
 my_venv/
