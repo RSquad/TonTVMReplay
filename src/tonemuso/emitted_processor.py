@@ -86,6 +86,8 @@ class EmittedMessageProcessor:
                   or self.r._fetch_state_for_account(block_key, dest_addr))
         try:
             ok = em.emulate_transaction(state1, msg['cell'], now, lt)
+            if ok and (em.account is None or em.transaction is None):
+                ok = False
             if ok:
                 new_state = em.account.to_cell()
                 self.r.account_states1[block_key][dest_addr] = new_state
