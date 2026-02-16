@@ -6,6 +6,13 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Clean up previous run files
+echo "Cleaning up previous run files..."
+rm -f emulation_report.txt
+rm -f failed_*.ts
+rm -f nohup.out
+echo ""
+
 # Check if virtual environment exists
 if [ ! -d "my_venv" ]; then
     echo "ERROR: Virtual environment not found!"

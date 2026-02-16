@@ -70,8 +70,9 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
             account_state_em2 = _ns2 if _ns2 is not None else account_state_em2
             out.extend(tmp_out)
         except Exception as e:
-            logger.error(f"EMULATOR ERROR: Got {e} while emulating!")
-            raise e
+            logger.error(f"EMULATOR ERROR: Got {e} while emulating transaction! Continuing with next transaction...")
+            # Continue processing remaining transactions instead of crashing the worker
+            continue
     return out
 
 
@@ -129,6 +130,10 @@ def process_result(outq, loglevel: int = 1):
     tmp_u = []
     if len(total_txs) > 0:
         for chunk in total_txs:
+            # Skip if chunk is not iterable (e.g., an exception object)
+            if not isinstance(chunk, (list, tuple)):
+                logger.error(f"Unexpected chunk type in results: {type(chunk)}")
+                continue
             for i in chunk:
                 if i['mode'] == 'success':
                     tmp_s += 1

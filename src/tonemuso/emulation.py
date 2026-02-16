@@ -327,7 +327,9 @@ class TxStepEmulator:
         go_as_success, out = self._compare_and_color(tx)
 
         # Finalize states
-        new_state_em1, new_state_em2 = self.em.account.to_cell(), self.em2.account.to_cell()
+        # If emulation failed, account may be None - fallback to previous state
+        new_state_em1 = self.em.account.to_cell() if self.em.account is not None else self.state1
+        new_state_em2 = self.em2.account.to_cell() if self.em2.account is not None else self.state2
         # Update internal states for subsequent calls when this instance is reused
         self.state1 = new_state_em1
         self.state2 = new_state_em2
