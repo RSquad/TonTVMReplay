@@ -168,146 +168,146 @@ def generate_html_report(env_params, failed_txs, analysis, log_stats):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TonTVMReplay Emulation Report</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 20px;
             line-height: 1.6;
-        }
-        .container {
+        }}
+        .container {{
             max-width: 1400px;
             margin: 0 auto;
             background: white;
             border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             overflow: hidden;
-        }
-        .header {
+        }}
+        .header {{
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 40px;
             text-align: center;
-        }
-        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
-        .header .timestamp { opacity: 0.9; font-size: 0.9em; }
-        .content { padding: 40px; }
-        .section {
+        }}
+        .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+        .header .timestamp {{ opacity: 0.9; font-size: 0.9em; }}
+        .content {{ padding: 40px; }}
+        .section {{
             margin-bottom: 40px;
             border-left: 4px solid #667eea;
             padding-left: 20px;
-        }
-        .section h2 {
+        }}
+        .section h2 {{
             color: #667eea;
             margin-bottom: 20px;
             font-size: 1.8em;
-        }
-        .stats-grid {
+        }}
+        .stats-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin: 20px 0;
-        }
-        .stat-card {
+        }}
+        .stat-card {{
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .stat-card h3 {
+        }}
+        .stat-card h3 {{
             color: #555;
             font-size: 0.9em;
             margin-bottom: 10px;
             text-transform: uppercase;
-        }
-        .stat-card .value {
+        }}
+        .stat-card .value {{
             font-size: 2em;
             font-weight: bold;
             color: #667eea;
-        }
-        .stat-card .subvalue {
+        }}
+        .stat-card .subvalue {{
             font-size: 0.9em;
             color: #666;
             margin-top: 5px;
-        }
-        .config-table {
+        }}
+        .config-table {{
             width: 100%;
             border-collapse: collapse;
             margin: 15px 0;
-        }
-        .config-table th {
+        }}
+        .config-table th {{
             background: #667eea;
             color: white;
             padding: 12px;
             text-align: left;
             font-weight: 600;
-        }
-        .config-table td {
+        }}
+        .config-table td {{
             padding: 10px 12px;
             border-bottom: 1px solid #e0e0e0;
-        }
-        .config-table tr:hover { background: #f5f5f5; }
-        .config-group {
+        }}
+        .config-table tr:hover {{ background: #f5f5f5; }}
+        .config-group {{
             margin: 20px 0;
             background: #f8f9fa;
             padding: 15px;
             border-radius: 6px;
-        }
-        .config-group h4 {
+        }}
+        .config-group h4 {{
             color: #667eea;
             margin-bottom: 10px;
-        }
-        .error-list {
+        }}
+        .error-list {{
             background: #f8f9fa;
             padding: 20px;
             border-radius: 6px;
             margin: 15px 0;
-        }
-        .error-item {
+        }}
+        .error-item {{
             background: white;
             padding: 15px;
             margin: 10px 0;
             border-radius: 6px;
             border-left: 4px solid #e74c3c;
-        }
-        .error-item h4 {
+        }}
+        .error-item h4 {{
             color: #e74c3c;
             margin-bottom: 10px;
-        }
-        .path-list {
+        }}
+        .path-list {{
             background: #f8f9fa;
             padding: 15px;
             border-radius: 6px;
             font-family: 'Courier New', monospace;
             font-size: 0.9em;
-        }
-        .path-item {
+        }}
+        .path-item {{
             padding: 8px;
             margin: 5px 0;
             background: white;
             border-radius: 4px;
             display: flex;
             justify-content: space-between;
-        }
-        .badge {
+        }}
+        .badge {{
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 0.85em;
             font-weight: 600;
-        }
-        .badge-success { background: #27ae60; color: white; }
-        .badge-warning { background: #f39c12; color: white; }
-        .badge-error { background: #e74c3c; color: white; }
-        .progress-bar {
+        }}
+        .badge-success {{ background: #27ae60; color: white; }}
+        .badge-warning {{ background: #f39c12; color: white; }}
+        .badge-error {{ background: #e74c3c; color: white; }}
+        .progress-bar {{
             width: 100%;
             height: 30px;
             background: #e0e0e0;
             border-radius: 15px;
             overflow: hidden;
             margin: 10px 0;
-        }
-        .progress-segment {
+        }}
+        .progress-segment {{
             float: left;
             height: 100%;
             display: flex;
@@ -316,20 +316,20 @@ def generate_html_report(env_params, failed_txs, analysis, log_stats):
             color: white;
             font-weight: bold;
             font-size: 0.85em;
-        }
-        .footer {
+        }}
+        .footer {{
             background: #2c3e50;
             color: white;
             text-align: center;
             padding: 20px;
             font-size: 0.9em;
-        }
-        code {
+        }}
+        code {{
             background: #f4f4f4;
             padding: 2px 6px;
             border-radius: 3px;
             font-family: 'Courier New', monospace;
-        }
+        }}
     </style>
 </head>
 <body>
