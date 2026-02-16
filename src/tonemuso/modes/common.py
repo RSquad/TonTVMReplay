@@ -128,6 +128,7 @@ def process_result(outq, loglevel: int = 1):
     tmp_s = 0
     tmp_w = 0
     tmp_u = []
+    tmp_addrs = set()
     if len(total_txs) > 0:
         for chunk in total_txs:
             # Skip if chunk is not iterable (e.g., an exception object)
@@ -135,6 +136,10 @@ def process_result(outq, loglevel: int = 1):
                 logger.error(f"Unexpected chunk type in results: {type(chunk)}")
                 continue
             for i in chunk:
+                # Track unique addresses
+                if 'address' in i:
+                    tmp_addrs.add(i['address'])
+                
                 if i['mode'] == 'success':
                     tmp_s += 1
                 elif i['mode'] == 'warning':
@@ -145,7 +150,7 @@ def process_result(outq, loglevel: int = 1):
     if loglevel > 1 and (tmp_s or tmp_w or tmp_u):
         logger.warning(f"Emulator status: {tmp_s} success, {tmp_w} warnings, {len(tmp_u)} errors")
 
-    return tmp_s, tmp_u, tmp_w
+    return tmp_s, tmp_u, tmp_w, tmp_addrs
 
 
 # Worker helpers for multi-trace mode

@@ -52,20 +52,24 @@ def run(cfg: Config):
     success = 0
     warnings = 0
     unsuccess = []
+    unique_accounts = set()
 
     while not scanner.done:
-        tmp_s, tmp_u, tmp_w = process_result(outq, loglevel=cfg.loglevel)
+        tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
         success += tmp_s
         warnings += tmp_w
         unsuccess.extend(tmp_u)
+        unique_accounts.update(tmp_addrs)
         sleep(1)
 
-    tmp_s, tmp_u, tmp_w = process_result(outq, loglevel=cfg.loglevel)
+    tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
     success += tmp_s
     warnings += tmp_w
     unsuccess.extend(tmp_u)
+    unique_accounts.update(tmp_addrs)
 
     logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {warnings} warnings")
+    logger.warning(f"Total unique accounts processed: {len(unique_accounts)}")
     
     # Cleanup multiprocessing resources
     try:

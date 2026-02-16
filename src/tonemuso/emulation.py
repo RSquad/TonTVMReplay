@@ -335,7 +335,10 @@ class TxStepEmulator:
         self.state2 = new_state_em2
 
         if go_as_success:
-            out.append({'mode': 'success', 'account_code_hash': self._extract_account_code_hash()})
+            # Extract address for tracking
+            tx1_tlb = Transaction().cell_unpack(tx['tx'], True).dump()
+            address_str = tx1_tlb['account_addr']
+            out.append({'mode': 'success', 'account_code_hash': self._extract_account_code_hash(), 'address': address_str})
 
         out_msgs = self._maybe_extract_out_msgs(extract_out_msgs)
         return out, new_state_em1, new_state_em2, out_msgs

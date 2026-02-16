@@ -121,6 +121,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 .venv
 env/
 venv/
@@ -163,7 +164,7 @@ failed_txs.json
 failed_txs_pretty.json
 test.json
 failed_traces.json
-emulation_report.txt
+emulation_report.html
 
 # Project-specific directories
 my_venv/

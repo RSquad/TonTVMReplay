@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 
 # Clean up previous run files
 echo "Cleaning up previous run files..."
-rm -f emulation_report.txt
+rm -f emulation_report.html
 rm -f failed_*.ts
 rm -f nohup.out
 echo ""
