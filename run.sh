@@ -9,8 +9,15 @@ cd "$SCRIPT_DIR"
 # Clean up previous run files
 echo "Cleaning up previous run files..."
 rm -f emulation_report.html
-rm -f failed_*.ts
+rm -f failed_txs.json
+rm -f failed_txs_pretty.json
+rm -f failed_txs_single.json
+rm -f failed_traces.json
+rm -f failed_traces_summary.json
+rm -f trace.json
+rm -f tonemuso_run.log
 rm -f nohup.out
+echo "Cleanup complete"
 echo ""
 
 # Check if virtual environment exists
