@@ -106,9 +106,9 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
 
-    prev_block_data = [list(reversed(block['prev_block_data'][1])),  # prev 16
+    prev_block_data = [block['prev_block_data'][1],  # prev 16
                        block['prev_block_data'][2],  # key block
-                       list(reversed(block['prev_block_data'][0]))]  # prev 16 by 100
+                       block['prev_block_data'][0]]  # prev 16 by 100
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 

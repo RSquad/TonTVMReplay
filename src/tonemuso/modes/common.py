@@ -163,8 +163,8 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     em = _create_emulator(emulator_path, config, vm_log_verbosity)
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
-                       list(reversed(block['prev_block_data'][0]))]
+    prev_block_data = [block['prev_block_data'][1], block['prev_block_data'][2],
+                       block['prev_block_data'][0]]
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
