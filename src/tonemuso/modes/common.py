@@ -1,6 +1,7 @@
 # Shared helpers extracted from main.py to avoid duplication
 from collections import OrderedDict, defaultdict
-import json as json_module
+import json
+import os
 from queue import Empty as QueueEmpty
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -13,12 +14,132 @@ from loguru import logger
 from tqdm import tqdm
 
 from tonemuso.utils import b64_to_hex
-from tonemuso.emulation import TxStepEmulator, init_emulators
+from tonemuso.diff import make_json_dumpable
+from tonemuso.emulation import TxStepEmulator, init_emulators, set_emulator_verbosity, _get_env_int, _create_emulator
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
 
 
 # No module-level globals; helpers are parameterized by cfg-derived values.
+
+
+def _dump_prev_blocks(block: Dict[str, Any], dump_dir: Optional[str]) -> None:
+    log_enabled = _get_env_int("EMULATOR_PREV_BLOCKS_DUMP_LOG", 0) > 0
+    blk = block.get('block_id')
+    if blk is None:
+        if log_enabled:
+            logger.warning("prev_blocks dump skipped: block_id missing")
+        return
+
+    try:
+        wc = blk.id.workchain
+        shard = blk.id.shard
+        seqno = blk.id.seqno
+    except Exception:
+        if log_enabled:
+            logger.warning("prev_blocks dump skipped: failed to read block_id fields")
+        return
+
+    if not dump_dir:
+        if log_enabled:
+            logger.warning(
+                f"prev_blocks dump skipped: EMULATOR_PREV_BLOCKS_DUMP_DIR is empty "
+                f"for block wc={wc} sh={hex(shard).upper()[2:]} seq={seqno}"
+            )
+        return
+    try:
+        os.makedirs(dump_dir, exist_ok=True)
+    except Exception:
+        if log_enabled:
+            logger.warning(f"prev_blocks dump skipped: failed to create dir {dump_dir!r}")
+        return
+
+    shard_hex = hex(shard).upper()[2:]
+    file_name = f"wc{wc}_sh{shard_hex}_seq{seqno}_prev_blocks.json"
+    file_path = os.path.join(dump_dir, file_name)
+    if os.path.exists(file_path):
+        try:
+            if os.path.getsize(file_path) > 0:
+                return
+            logger.warning(f"prev_blocks dump file is empty, will overwrite: {file_path}")
+        except Exception:
+            return
+
+    prev = block.get('prev_block_data') or []
+    prev_100 = prev[0] if len(prev) > 0 else None
+    prev_16 = prev[1] if len(prev) > 1 else None
+    key_block_data = prev[2] if len(prev) > 2 else None
+
+    key_block = block.get('key_block')
+    key_block_id = None
+    try:
+        if isinstance(key_block, dict) and key_block.get('blk_id') is not None:
+            key_block_id = key_block['blk_id'].to_data()
+    except Exception:
+        key_block_id = None
+
+    def _blk_to_data(x: Any) -> Any:
+        try:
+            return x.to_data()
+        except Exception:
+            return None
+
+    # Log gaps if any of the prev blocks are missing
+    try:
+        missing_16 = []
+        if isinstance(prev_16, list):
+            for i, v in enumerate(prev_16):
+                if not v:
+                    missing_16.append(i)
+        missing_100 = []
+        if isinstance(prev_100, list):
+            for i, v in enumerate(prev_100):
+                if not v:
+                    missing_100.append(i)
+        if prev_16 is None or prev_100 is None:
+            logger.warning(
+                f"prev_block_data missing for block wc={wc} sh={shard_hex} seq={seqno}: "
+                f"prev_16={'None' if prev_16 is None else 'len='+str(len(prev_16))} "
+                f"prev_100={'None' if prev_100 is None else 'len='+str(len(prev_100))}"
+            )
+        elif missing_16 or missing_100 or len(prev_16) < 16 or len(prev_100) < 16:
+            logger.warning(
+                f"prev_block_data gaps for block wc={wc} sh={shard_hex} seq={seqno}: "
+                f"prev_16_len={len(prev_16)} missing_16={missing_16} "
+                f"prev_100_len={len(prev_100)} missing_100={missing_100}"
+            )
+    except Exception:
+        pass
+
+    payload = {
+        "block_id": _blk_to_data(blk),
+        "key_block_id": key_block_id,
+        "prev_block_left": _blk_to_data(block.get('prev_block_left')),
+        "prev_block_right": _blk_to_data(block.get('prev_block_right')),
+        "prev_blocks_100": prev_100,
+        "prev_blocks_16": prev_16,
+        "key_block_data": key_block_data,
+    }
+
+    try:
+        payload = make_json_dumpable(payload)
+        tmp_path = f"{file_path}.tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(payload, f, ensure_ascii=True)
+        os.replace(tmp_path, file_path)
+        if _get_env_int("EMULATOR_PREV_BLOCKS_DUMP_LOG", 0) > 0:
+            logger.info(
+                f"prev_blocks dumped: {file_path} "
+                f"prev_16_len={len(prev_16) if isinstance(prev_16, list) else 'None'} "
+                f"prev_100_len={len(prev_100) if isinstance(prev_100, list) else 'None'}"
+            )
+    except Exception:
+        try:
+            if os.path.exists(f"{file_path}.tmp"):
+                os.remove(f"{file_path}.tmp")
+        except Exception:
+            pass
+        return
 
 
 @curry
@@ -28,6 +149,8 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     out = []
     block, initial_account_state, txs = data
 
+    _dump_prev_blocks(block, os.getenv("EMULATOR_PREV_BLOCKS_DUMP_DIR", "").strip())
+
     # Base/working configs
     base_config: VmDict = VmDict(32, False, block['key_block']['config'])
     config: VmDict = VmDict(32, False, block['key_block']['config'])
@@ -36,14 +159,17 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
             config.set(int(param), begin_cell().store_ref(Cell(config_override[param])).end_cell().begin_parse())
 
     # Emulators
-    em = EmulatorExtern(emulator_path, config)
+    vm_log_verbosity = _get_env_int("EMULATOR_VM_LOG_VERBOSITY", 0)
+    em = _create_emulator(emulator_path, config, vm_log_verbosity)
+    set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
     prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
                        list(reversed(block['prev_block_data'][0]))]
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
-    em2 = EmulatorExtern(emulator_unchanged_path, base_config)
+    em2 = _create_emulator(emulator_unchanged_path, base_config, vm_log_verbosity)
+    set_emulator_verbosity(em2, env_name="EMULATOR_UNCHANGED_VERBOSITY", default_level=1)
     em2.set_rand_seed(block['rand_seed'])
     em2.set_prev_blocks_info(prev_block_data)
     em2.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
@@ -131,9 +257,17 @@ def process_result(outq, loglevel: int = 1):
     tmp_addrs = set()
     if len(total_txs) > 0:
         for chunk in total_txs:
+<<<<<<< HEAD
             # Skip if chunk is not iterable (e.g., an exception object)
             if not isinstance(chunk, (list, tuple)):
                 logger.error(f"Unexpected chunk type in results: {type(chunk)}")
+=======
+            if isinstance(chunk, Exception):
+                logger.error(f"Worker error: {chunk}")
+                continue
+            if not isinstance(chunk, (list, tuple)):
+                logger.error(f"Unexpected worker output type: {type(chunk)} value={chunk}")
+>>>>>>> single_tx_emulate
                 continue
             for i in chunk:
                 # Track unique addresses

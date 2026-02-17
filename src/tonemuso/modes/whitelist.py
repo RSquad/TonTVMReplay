@@ -1,4 +1,4 @@
-import json as json_module
+import json as std_json
 from collections import Counter
 from loguru import logger
 from tonpy.blockscanner.blockscanner import *
@@ -85,4 +85,4 @@ def run(cfg: Config):
         logger.error(f"Unique addreses errors: {len(cnt)}, most common: ")
         logger.error(cnt.most_common(5))
         with open("failed_txs.json", "w") as f:
-            json_module.dump(unsuccess, f)
+            std_json.dump(unsuccess, f)
