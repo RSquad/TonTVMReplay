@@ -162,11 +162,24 @@ cython_debug/
 
 failed_txs.json
 failed_txs_pretty.json
+failed_txs_single.json
 test.json
 failed_traces.json
+failed_traces_summary.json
 emulation_report.html
+trace.json
+diff_colored.json
+tonemuso_run.log
+nohup.out
 
 # Project-specific directories
 my_venv/
 cpp/
 rust/
+
+# Emulator dump directories (configurable via env vars)
+*_dump/
+dumps/
+precall_dumps/
+post_dumps/
+proof_dumps/

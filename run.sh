@@ -6,20 +6,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Clean up previous run files
-echo "Cleaning up previous run files..."
-rm -f emulation_report.html
-rm -f failed_txs.json
-rm -f failed_txs_pretty.json
-rm -f failed_txs_single.json
-rm -f failed_traces.json
-rm -f failed_traces_summary.json
-rm -f trace.json
-rm -f tonemuso_run.log
-rm -f nohup.out
-echo "Cleanup complete"
-echo ""
-
 # Check if virtual environment exists
 if [ ! -d "my_venv" ]; then
     echo "ERROR: Virtual environment not found!"
@@ -44,6 +30,44 @@ else
     echo "Please create .env with your configuration"
     echo ""
 fi
+
+# Clean up previous run files (after loading .env for dump dir paths)
+echo "Cleaning up previous run files..."
+rm -f emulation_report.html
+rm -f failed_txs.json
+rm -f failed_txs_pretty.json
+rm -f failed_txs_single.json
+rm -f failed_traces.json
+rm -f failed_traces_summary.json
+rm -f trace.json
+rm -f diff_colored.json
+rm -f tonemuso_run.log
+rm -f nohup.out
+
+# Clean up dump directories if they exist and are set
+if [ -n "$EMULATOR_PRECALL_DUMP_DIR" ] && [ -d "$EMULATOR_PRECALL_DUMP_DIR" ]; then
+    echo "Cleaning EMULATOR_PRECALL_DUMP_DIR: $EMULATOR_PRECALL_DUMP_DIR"
+    rm -rf "$EMULATOR_PRECALL_DUMP_DIR"/*
+fi
+if [ -n "$EMULATOR_POST_DUMP_DIR" ] && [ -d "$EMULATOR_POST_DUMP_DIR" ]; then
+    echo "Cleaning EMULATOR_POST_DUMP_DIR: $EMULATOR_POST_DUMP_DIR"
+    rm -rf "$EMULATOR_POST_DUMP_DIR"/*
+fi
+if [ -n "$EMULATOR_MASTER_PROOF_DUMP_DIR" ] && [ -d "$EMULATOR_MASTER_PROOF_DUMP_DIR" ]; then
+    echo "Cleaning EMULATOR_MASTER_PROOF_DUMP_DIR: $EMULATOR_MASTER_PROOF_DUMP_DIR"
+    rm -rf "$EMULATOR_MASTER_PROOF_DUMP_DIR"/*
+fi
+if [ -n "$EMULATOR_ACCOUNT_FAIL_DUMP_DIR" ] && [ -d "$EMULATOR_ACCOUNT_FAIL_DUMP_DIR" ]; then
+    echo "Cleaning EMULATOR_ACCOUNT_FAIL_DUMP_DIR: $EMULATOR_ACCOUNT_FAIL_DUMP_DIR"
+    rm -rf "$EMULATOR_ACCOUNT_FAIL_DUMP_DIR"/*
+fi
+if [ -n "$EMULATOR_PREV_BLOCKS_DUMP_DIR" ] && [ -d "$EMULATOR_PREV_BLOCKS_DUMP_DIR" ]; then
+    echo "Cleaning EMULATOR_PREV_BLOCKS_DUMP_DIR: $EMULATOR_PREV_BLOCKS_DUMP_DIR"
+    rm -rf "$EMULATOR_PREV_BLOCKS_DUMP_DIR"/*
+fi
+
+echo "Cleanup complete"
+echo ""
 
 # Run tonemuso
 echo "Starting TonTVMReplay..."
