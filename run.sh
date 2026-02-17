@@ -31,6 +31,25 @@ else
     echo ""
 fi
 
+# 
+if [ -f "requirements.txt" ]; then
+    echo "Installing Python dependencies from requirements.txt..."
+    pip install -r requirements.txt
+    echo -e "${GREEN}✓ Python dependencies installed${NC}"
+else
+    echo -e "${YELLOW}Warning: requirements.txt not found${NC}"
+fi
+
+# Install package in development mode
+if [ -f "setup.py" ]; then
+    echo "Installing TonTVMReplay package..."
+    pip install -e .
+    echo -e "${GREEN}✓ TonTVMReplay package installed${NC}"
+else
+    echo -e "${YELLOW}Warning: setup.py not found${NC}"
+fi
+
+
 # Clean up previous run files (after loading .env for dump dir paths)
 echo "Cleaning up previous run files..."
 rm -f emulation_report.html
