@@ -71,6 +71,18 @@ class Config:
         # Emulators
         cfg.emulator_path = os.getenv("EMULATOR_PATH")
         cfg.emulator_unchanged_path = os.getenv("EMULATOR_UNCHANGED_PATH")
+        if not cfg.emulator_path:
+            logger.error("EMULATOR_PATH is not set")
+        elif not os.path.exists(cfg.emulator_path):
+            logger.error(f"EMULATOR_PATH not found: {cfg.emulator_path}")
+        else:
+            logger.warning(f"Emulator primary: {cfg.emulator_path}")
+        if not cfg.emulator_unchanged_path:
+            logger.error("EMULATOR_UNCHANGED_PATH is not set")
+        elif not os.path.exists(cfg.emulator_unchanged_path):
+            logger.error(f"EMULATOR_UNCHANGED_PATH not found: {cfg.emulator_unchanged_path}")
+        else:
+            logger.warning(f"Emulator secondary: {cfg.emulator_unchanged_path}")
         cfg.c7_rewrite_raw = os.getenv("C7_REWRITE")
         try:
             cfg.c7_rewrite = json.loads(cfg.c7_rewrite_raw) if cfg.c7_rewrite_raw else None
