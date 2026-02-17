@@ -40,7 +40,6 @@ rm -f failed_txs_single.json
 rm -f failed_traces.json
 rm -f failed_traces_summary.json
 rm -f trace.json
-rm -f diff_colored.json
 rm -f tonemuso_run.log
 rm -f nohup.out
 
