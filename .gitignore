@@ -162,3 +162,11 @@ cython_debug/
 failed_txs.json
 test.json
 failed_traces.json
+dump
+
+packs 
+runs
+failed_txs
+emulator_post_bocs
+emulator_inputs
+cpp_test_with_failed

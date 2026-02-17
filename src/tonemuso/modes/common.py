@@ -22,6 +22,12 @@ from tonemuso.trace_runner import TraceOrderedRunner
 
 # No module-level globals; helpers are parameterized by cfg-derived values.
 
+def _env_flag(name: str) -> bool:
+    v = os.getenv(name, "").strip()
+    if v == "":
+        return False
+    return v.lower() not in ("0", "false", "no")
+
 
 def _dump_prev_blocks(block: Dict[str, Any], dump_dir: Optional[str]) -> None:
     log_enabled = _get_env_int("EMULATOR_PREV_BLOCKS_DUMP_LOG", 0) > 0
@@ -163,8 +169,14 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     em = _create_emulator(emulator_path, config, vm_log_verbosity)
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
-                       list(reversed(block['prev_block_data'][0]))]
+    # blockscanner provides prev_blocks in newest->oldest order
+    reverse_prev = _env_flag("EMULATOR_PREV_BLOCKS_REVERSE")
+    prev16 = block['prev_block_data'][1]
+    prev100 = block['prev_block_data'][0]
+    if reverse_prev:
+        prev16 = list(reversed(prev16)) if isinstance(prev16, list) else prev16
+        prev100 = list(reversed(prev100)) if isinstance(prev100, list) else prev100
+    prev_block_data = [prev16, block['prev_block_data'][2], prev100]
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
