@@ -257,17 +257,13 @@ def process_result(outq, loglevel: int = 1):
     tmp_addrs = set()
     if len(total_txs) > 0:
         for chunk in total_txs:
-<<<<<<< HEAD
-            # Skip if chunk is not iterable (e.g., an exception object)
-            if not isinstance(chunk, (list, tuple)):
-                logger.error(f"Unexpected chunk type in results: {type(chunk)}")
-=======
+            # Check for exceptions first
             if isinstance(chunk, Exception):
                 logger.error(f"Worker error: {chunk}")
                 continue
+            # Skip if chunk is not iterable (e.g., an exception object)
             if not isinstance(chunk, (list, tuple)):
                 logger.error(f"Unexpected worker output type: {type(chunk)} value={chunk}")
->>>>>>> single_tx_emulate
                 continue
             for i in chunk:
                 # Track unique addresses
@@ -311,7 +307,7 @@ def worker_init(preindexed, lcparams, loglevel, color_schema, c7_env, emulator_p
 def process_one_trace_worker(args):
     try:
         tidx, t = args
-        config_override = json_module.loads(_W_C7_ENV) if _W_C7_ENV else None
+        config_override = json.loads(_W_C7_ENV) if _W_C7_ENV else None
         # t must be a TonTrace instance
         tx_order = t.transactions_order_b64
         tx_order_list = [b64_to_hex(h).upper() for h in (tx_order or [])]
