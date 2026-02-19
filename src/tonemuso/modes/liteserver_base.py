@@ -10,7 +10,8 @@ from tonemuso.debug_dumper import init_dumper, get_dumper
 
 
 def run(cfg: Config):
-    init_dumper(cfg.debug_dumps_dir)
+    dumper = init_dumper(cfg.debug_dumps_dir)
+    debug_dumps_run_dir = dumper.run_dir if dumper else None
 
     txs_whitelist = None
     if cfg.txs_to_process and isinstance(cfg.txs_to_process, dict):
@@ -24,7 +25,7 @@ def run(cfg: Config):
     from_seqno = cfg.from_seqno or (to_seqno - int(cfg.to_emulate_mc_blocks))
 
     outq = Queue()
-    raw_proc = process_blocks(config_override=cfg.c7_rewrite, trace_whitelist=None, loglevel=cfg.loglevel, color_schema=cfg.color_schema, emulator_path=cfg.emulator_path, emulator_unchanged_path=cfg.emulator_unchanged_path, txs_whitelist=txs_whitelist)
+    raw_proc = process_blocks(config_override=cfg.c7_rewrite, trace_whitelist=None, loglevel=cfg.loglevel, color_schema=cfg.color_schema, emulator_path=cfg.emulator_path, emulator_unchanged_path=cfg.emulator_unchanged_path, txs_whitelist=txs_whitelist, debug_dumps_run_dir=debug_dumps_run_dir)
     scanner = BlockScanner(
         lcparams=lcparams,
         start_from=from_seqno,
@@ -78,8 +79,9 @@ def run(cfg: Config):
             cnt[i['address']] += 1
         logger.error(f"Unique addreses errors: {len(cnt)}, most common: ")
         logger.error(cnt.most_common(5))
+        import json as std_json
         with open("failed_txs.json", "w") as f:
-            json.dump(unsuccess, f)
+            std_json.dump(unsuccess, f, indent=2)
     if warnings:
         import json as std_json
         import os

@@ -107,9 +107,9 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
 
-    prev_block_data = [list(block['prev_block_data'][1]),  # prev 16 (no reverse)
+    prev_block_data = [list(reversed(block['prev_block_data'][1])),  # prev 16
                        block['prev_block_data'][2],  # key block
-                       list(block['prev_block_data'][0])]  # prev 16 by 100 (no reverse)
+                       list(reversed(block['prev_block_data'][0]))]  # prev 16 by 100  # prev 16 by 100
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
@@ -715,8 +715,10 @@ class TxStepEmulator:
         """Save debug dump for failed transaction if DEBUG_DUMPS_DIR is configured."""
         dumper = get_dumper()
         if dumper is None:
+            logger.debug("Debug dumper not configured, skipping dump")
             return
         try:
+            logger.info(f"Saving debug dump for tx: {tx['tx'].get_hash()[:16]}...")
             em1_tx = self.em.transaction.to_cell() if self.em and self.em.transaction else None
             em2_tx = self.em2.transaction.to_cell() if self.em2 and self.em2.transaction else None
             em1_account = self.em.account.to_cell() if self.em and self.em.account else None
@@ -733,7 +735,9 @@ class TxStepEmulator:
                 error_info=error_info,
             )
         except Exception as e:
-            logger.warning(f"Failed to save debug dump: {e}")
+            logger.error(f"Failed to save debug dump: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def _compare_and_color(self, tx: Dict[str, Any], state_before: Optional[Cell] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         out: List[Dict[str, Any]] = []
@@ -981,65 +985,14 @@ class TxStepEmulator:
         # Compare/hash/color (always using em2)
         go_as_success, out = self._compare_and_color(tx, state_before=state_before)
 
-        # Finalize states
-        acc1 = self.em.account if self.em is not None else None
-        acc2 = self.em2.account if self.em2 is not None else None
-        missing_accounts = (acc1 is None) or (acc2 is None)
-        if missing_accounts:
-            # Optional dump of BOCs when emulator account is missing
-            self._dump_account_read_failure(
-                tx,
-                orig_in_msg,
-                override_in_msg,
-                lt,
-                now,
-                is_tock,
-                missing_em1=acc1 is None,
-                missing_em2=acc2 is None
-            )
-            state1_b64, state1_err, state1_type = self._state_to_boc_info(self.state1)
-            state2_b64, state2_err, state2_type = self._state_to_boc_info(self.state2)
-            logger.error(
-                f"Emulator account missing: em1={acc1 is None} em2={acc2 is None} "
-                f"state1_type={state1_type} state1_boc_b64={state1_b64} state1_boc_error={state1_err} "
-                f"state2_type={state2_type} state2_boc_b64={state2_b64} state2_boc_error={state2_err}"
-            )
-            go_as_success = False
-            has_missing_error = any(
-                isinstance(e, dict) and e.get('fail_reason') == 'emulator_account_missing'
-                for e in out
-            )
-            if not has_missing_error:
-                try:
-                    tx1_tlb = Transaction().cell_unpack(tx['tx'], True).dump()
-                    address = tx1_tlb.get('account_addr')
-                except Exception:
-                    address = None
-                err = {
-                    'mode': 'error',
-                    'expected': tx['tx'].get_hash(),
-                    'fail_reason': 'emulator_account_missing',
-                    'account_code_hash': self._extract_account_code_hash(),
-                    'missing_em1': acc1 is None,
-                    'missing_em2': acc2 is None,
-                    'state1_boc_b64': state1_b64,
-                    'state1_boc_error': state1_err,
-                    'state1_type': state1_type,
-                    'state2_boc_b64': state2_b64,
-                    'state2_boc_error': state2_err,
-                    'state2_type': state2_type,
-                }
-                if address is not None:
-                    err['address'] = address
-                if self.em is not None and self.em.transaction is not None:
-                    err['got'] = self.em.transaction.get_hash()
-                out.append(err)
-
-        new_state_em1 = acc1.to_cell() if acc1 is not None else self.state1
-        new_state_em2 = acc2.to_cell() if acc2 is not None else self.state2
+        # Finalize states (None if emulation failed)
+        new_state_em1 = self.em.account.to_cell() if self.em and self.em.account else None
+        new_state_em2 = self.em2.account.to_cell() if self.em2 and self.em2.account else None
         # Update internal states for subsequent calls when this instance is reused
-        self.state1 = new_state_em1
-        self.state2 = new_state_em2
+        if new_state_em1 is not None:
+            self.state1 = new_state_em1
+        if new_state_em2 is not None:
+            self.state2 = new_state_em2
 
         if go_as_success:
             # Extract address for tracking

@@ -18,7 +18,7 @@ from tonemuso.diff import make_json_dumpable
 from tonemuso.emulation import TxStepEmulator, init_emulators, set_emulator_verbosity, _get_env_int, _create_emulator
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
-from tonemuso.debug_dumper import get_dumper
+from tonemuso.debug_dumper import get_dumper, init_dumper
 
 
 # No module-level globals; helpers are parameterized by cfg-derived values.
@@ -146,7 +146,12 @@ def _dump_prev_blocks(block: Dict[str, Any], dump_dir: Optional[str]) -> None:
 @curry
 def process_blocks(data, config_override: dict = None, trace_whitelist: set = None, loglevel: int = 1,
                    color_schema: Optional[Dict[str, Any]] = None, emulator_path: Optional[str] = None,
-                   emulator_unchanged_path: Optional[str] = None, txs_whitelist: Optional[Set[str]] = None):
+                   emulator_unchanged_path: Optional[str] = None, txs_whitelist: Optional[Set[str]] = None,
+                   debug_dumps_run_dir: Optional[str] = None):
+    # Init dumper in worker process if not already initialized
+    if debug_dumps_run_dir and get_dumper() is None:
+        init_dumper(None, run_dir=debug_dumps_run_dir)
+    
     out = []
     block, initial_account_state, txs = data
 
@@ -164,8 +169,8 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     em = _create_emulator(emulator_path, config, vm_log_verbosity)
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(block['prev_block_data'][1]), block['prev_block_data'][2],
-                       list(block['prev_block_data'][0])]  # no reverse
+    prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
+                       list(reversed(block['prev_block_data'][0]))]
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
