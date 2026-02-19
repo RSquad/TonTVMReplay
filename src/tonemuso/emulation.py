@@ -12,6 +12,7 @@ from loguru import logger
 
 from tonemuso.diff import get_diff, get_colored_diff, make_json_dumpable, get_shard_account_diff
 from tonemuso.utils import hex_to_b64
+from tonemuso.debug_dumper import get_dumper
 
 # Per-process run folder for pre-emulation dumps
 _PRECALL_RUN_DIR: Optional[str] = None
@@ -106,9 +107,9 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
 
-    prev_block_data = [block['prev_block_data'][1],  # prev 16
+    prev_block_data = [list(block['prev_block_data'][1]),  # prev 16 (no reverse)
                        block['prev_block_data'][2],  # key block
-                       block['prev_block_data'][0]]  # prev 16 by 100
+                       list(block['prev_block_data'][0])]  # prev 16 by 100 (no reverse)
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
@@ -710,7 +711,31 @@ class TxStepEmulator:
         except Exception as e:
             logger.warning(f"Failed to write account-fail meta {meta_path!r}: {e}")
 
-    def _compare_and_color(self, tx: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+    def _save_debug_dump(self, tx: Dict[str, Any], error_info: Dict[str, Any], state_before: Optional[Cell] = None):
+        """Save debug dump for failed transaction if DEBUG_DUMPS_DIR is configured."""
+        dumper = get_dumper()
+        if dumper is None:
+            return
+        try:
+            em1_tx = self.em.transaction.to_cell() if self.em and self.em.transaction else None
+            em2_tx = self.em2.transaction.to_cell() if self.em2 and self.em2.transaction else None
+            em1_account = self.em.account.to_cell() if self.em and self.em.account else None
+            em2_account = self.em2.account.to_cell() if self.em2 and self.em2.account else None
+            account_before = state_before if state_before is not None else self.state1
+            dumper.save_from_emulation_context(
+                tx=tx,
+                block=self.block,
+                account_state_before=account_before,
+                em1_tx=em1_tx,
+                em2_tx=em2_tx,
+                em1_account=em1_account,
+                em2_account=em2_account,
+                error_info=error_info,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save debug dump: {e}")
+
+    def _compare_and_color(self, tx: Dict[str, Any], state_before: Optional[Cell] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         out: List[Dict[str, Any]] = []
         go_as_success = True
         account_code_hash = self._extract_account_code_hash()
@@ -724,6 +749,7 @@ class TxStepEmulator:
             else:
                 err['cant_emulate_em2'] = True
 
+            self._save_debug_dump(tx, err, state_before)
             out.append(err)
             return go_as_success, out
         if self.em.account is None or self.em2.account is None:
@@ -795,6 +821,7 @@ class TxStepEmulator:
                     err_obj['unchanged_emulator_account_hash'] = unchanged_emulator_account_hash
                 if changed_emulator_account_hash is not None:
                     err_obj['changed_emulator_account_hash'] = changed_emulator_account_hash
+                self._save_debug_dump(tx, err_obj, state_before)
                 out.append(err_obj)
             else:
                 max_level, log = get_colored_diff(diff, self.color_schema)
@@ -831,6 +858,7 @@ class TxStepEmulator:
                         err_obj['unchanged_emulator_account_hash'] = unchanged_emulator_account_hash
                     if changed_emulator_account_hash is not None:
                         err_obj['changed_emulator_account_hash'] = changed_emulator_account_hash
+                    self._save_debug_dump(tx, err_obj, state_before)
                     out.append(err_obj)
                 elif max_level == 'warn':
                     go_as_success = False
@@ -923,6 +951,8 @@ class TxStepEmulator:
         self._dump_pre_emulation(tx, orig_in_msg, override_in_msg, lt, now, is_tock)
         # Optional master proof dump for the block
         self._dump_master_proof(lt, now)
+        # Save state before emulation for debug dumps
+        state_before = self.state1
 
         # Primary
         try:
@@ -949,7 +979,7 @@ class TxStepEmulator:
                 f"Run success(em1{('-override' if override_in_msg is not None else '')}): {self.state1.get_hash() if self.state1 is not None else None} -> {success1}, TX: {self.em.transaction if self.em is not None else None}; (em2): {self.state2.get_hash() if self.state2 is not None else None} -> {success2}, TX: {self.em2.transaction if self.em2 is not None else None}")
 
         # Compare/hash/color (always using em2)
-        go_as_success, out = self._compare_and_color(tx)
+        go_as_success, out = self._compare_and_color(tx, state_before=state_before)
 
         # Finalize states
         acc1 = self.em.account if self.em is not None else None

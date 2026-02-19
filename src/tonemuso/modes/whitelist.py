@@ -5,9 +5,12 @@ from tonpy.blockscanner.blockscanner import *
 
 from tonemuso.config import Config
 from tonemuso.modes.common import process_blocks, process_result
+from tonemuso.debug_dumper import init_dumper, get_dumper
 
 
 def run(cfg: Config):
+    init_dumper(cfg.debug_dumps_dir)
+
     txs_whitelist = None
     txs_list = None
     if cfg.txs_to_process and isinstance(cfg.txs_to_process, dict):
@@ -50,21 +53,21 @@ def run(cfg: Config):
     scanner.start()
 
     success = 0
-    warnings = 0
+    warnings = []
     unsuccess = []
     unique_accounts = set()
 
     while not scanner.done:
         tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
         success += tmp_s
-        warnings += tmp_w
+        warnings.extend(tmp_w)
         unsuccess.extend(tmp_u)
         unique_accounts.update(tmp_addrs)
         sleep(1)
 
     tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
     success += tmp_s
-    warnings += tmp_w
+    warnings.extend(tmp_w)
     unsuccess.extend(tmp_u)
     unique_accounts.update(tmp_addrs)
 
@@ -85,4 +88,12 @@ def run(cfg: Config):
         logger.error(f"Unique addreses errors: {len(cnt)}, most common: ")
         logger.error(cnt.most_common(5))
         with open("failed_txs.json", "w") as f:
-            std_json.dump(unsuccess, f)
+            json.dump(unsuccess, f)
+    if warnings:
+        import json as std_json
+        import os
+        dumper = get_dumper()
+        warnings_path = os.path.join(dumper.run_dir, "warnings.json") if dumper else "warnings.json"
+        with open(warnings_path, "w") as f:
+            std_json.dump(warnings, f, indent=2)
+        logger.info(f"Warnings saved to: {warnings_path}")

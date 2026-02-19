@@ -50,6 +50,9 @@ class Config:
     toncenter_msg_hash: Optional[str] = None
     toncenter_traces_by_masters: bool = False
 
+    # Debug dumps for failed transactions
+    debug_dumps_dir: Optional[str] = None
+
     def liteclient_server(self) -> Dict[str, Any]:
         """Legacy method for single server. Returns first server from list or legacy config."""
         if self.liteservers:
@@ -174,6 +177,9 @@ class Config:
         # Fix: properly parse boolean from string
         traces_env = os.getenv("TONCENTER_TRACES_BY_MASTERS", "").lower()
         cfg.toncenter_traces_by_masters = traces_env in ("true", "1", "yes")
+
+        # Debug dumps
+        cfg.debug_dumps_dir = os.getenv("DEBUG_DUMPS_DIR")
         return cfg
 
     def lcparams(self) -> Dict[str, Any]:
