@@ -31,9 +31,9 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
     em = EmulatorExtern(emulator_path, config)
     em.set_rand_seed(block['rand_seed'])
 
-    prev_block_data = [list(block['prev_block_data'][1]),  # prev 16 (no reverse)
+    prev_block_data = [list(reversed(block['prev_block_data'][1])),  # prev 16
                        block['prev_block_data'][2],  # key block
-                       list(block['prev_block_data'][0])]  # prev 16 by 100 (no reverse)  # prev 16 by 100
+                       list(reversed(block['prev_block_data'][0]))]  # prev 16 by 100  # prev 16 by 100
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
@@ -166,8 +166,10 @@ class TxStepEmulator:
         """Save debug dump for failed transaction if DEBUG_DUMPS_DIR is configured."""
         dumper = get_dumper()
         if dumper is None:
+            logger.debug("Debug dumper not configured, skipping dump")
             return
         try:
+            logger.info(f"Saving debug dump for tx: {tx['tx'].get_hash()[:16]}...")
             em1_tx = self.em.transaction.to_cell() if self.em and self.em.transaction else None
             em2_tx = self.em2.transaction.to_cell() if self.em2 and self.em2.transaction else None
             em1_account = self.em.account.to_cell() if self.em and self.em.account else None
@@ -184,7 +186,9 @@ class TxStepEmulator:
                 error_info=error_info,
             )
         except Exception as e:
-            logger.warning(f"Failed to save debug dump: {e}")
+            logger.error(f"Failed to save debug dump: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def _compare_and_color(self, tx: Dict[str, Any], state_before: Optional[Cell] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         out: List[Dict[str, Any]] = []
@@ -346,11 +350,14 @@ class TxStepEmulator:
         # Compare/hash/color (always using em2)
         go_as_success, out = self._compare_and_color(tx, state_before=state_before)
 
-        # Finalize states
-        new_state_em1, new_state_em2 = self.em.account.to_cell(), self.em2.account.to_cell()
+        # Finalize states (None if emulation failed)
+        new_state_em1 = self.em.account.to_cell() if self.em and self.em.account else None
+        new_state_em2 = self.em2.account.to_cell() if self.em2 and self.em2.account else None
         # Update internal states for subsequent calls when this instance is reused
-        self.state1 = new_state_em1
-        self.state2 = new_state_em2
+        if new_state_em1 is not None:
+            self.state1 = new_state_em1
+        if new_state_em2 is not None:
+            self.state2 = new_state_em2
 
         if go_as_success:
             out.append({'mode': 'success', 'account_code_hash': self._extract_account_code_hash()})

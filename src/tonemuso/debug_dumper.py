@@ -40,8 +40,18 @@ def _save_boc(cell: Optional[Cell], path: str) -> bool:
     if cell is None:
         return False
     try:
-        boc_hex = cell.to_boc()
-        boc_bytes = bytes.fromhex(boc_hex)
+        boc = cell.to_boc()
+        if isinstance(boc, bytes):
+            boc_bytes = boc
+        elif isinstance(boc, str):
+            # Try hex first, then base64
+            try:
+                boc_bytes = bytes.fromhex(boc)
+            except ValueError:
+                import base64
+                boc_bytes = base64.b64decode(boc)
+        else:
+            boc_bytes = bytes(boc)
         with open(path, "wb") as f:
             f.write(boc_bytes)
         return True
@@ -59,10 +69,13 @@ def _save_json(data: Any, path: str):
 class DebugDumper:
     """Manages debug dump directory and saves failed transaction data."""
 
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: str, run_dir: Optional[str] = None):
         self.base_dir = base_dir
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir = os.path.join(base_dir, f"run_{timestamp}")
+        if run_dir:
+            self.run_dir = run_dir
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.run_dir = os.path.join(base_dir, f"run_{timestamp}")
         self.failed_dir = os.path.join(self.run_dir, "failed")
         os.makedirs(self.failed_dir, exist_ok=True)
         logger.info(f"Debug dumps will be saved to: {self.run_dir}")
@@ -132,9 +145,9 @@ class DebugDumper:
         }
 
         prev_blocks = [
-            list(block['prev_block_data'][1]),  # no reverse
+            list(reversed(block['prev_block_data'][1])),
             block['prev_block_data'][2],
-            list(block['prev_block_data'][0]),  # no reverse
+            list(reversed(block['prev_block_data'][0])),
         ]
 
         dump = TxDebugDump(
@@ -164,11 +177,11 @@ class DebugDumper:
 _GLOBAL_DUMPER: Optional[DebugDumper] = None
 
 
-def init_dumper(base_dir: Optional[str]) -> Optional[DebugDumper]:
+def init_dumper(base_dir: Optional[str], run_dir: Optional[str] = None) -> Optional[DebugDumper]:
     """Initialize global dumper. Call once at startup."""
     global _GLOBAL_DUMPER
-    if base_dir:
-        _GLOBAL_DUMPER = DebugDumper(base_dir)
+    if base_dir or run_dir:
+        _GLOBAL_DUMPER = DebugDumper(base_dir or "", run_dir=run_dir)
     return _GLOBAL_DUMPER
 
 
