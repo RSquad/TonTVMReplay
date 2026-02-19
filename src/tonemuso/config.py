@@ -47,6 +47,9 @@ class Config:
     toncenter_msg_hash: Optional[str] = None
     toncenter_traces_by_masters: bool = False
 
+    # Debug dumps for failed transactions
+    debug_dumps_dir: Optional[str] = None
+
     def liteclient_server(self) -> Dict[str, Any]:
         return {
             "ip": int(self.liteserver_ip) if self.liteserver_ip is not None else 0,
@@ -114,6 +117,9 @@ class Config:
         cfg.toncenter_tx_hash = os.getenv("TONCENTER_TX_HASH")
         cfg.toncenter_msg_hash = os.getenv("TONCENTER_MSG_HASH")
         cfg.toncenter_traces_by_masters = bool(os.getenv("TONCENTER_TRACES_BY_MASTERS"))
+
+        # Debug dumps
+        cfg.debug_dumps_dir = os.getenv("DEBUG_DUMPS_DIR")
         return cfg
 
     def lcparams(self) -> Dict[str, Any]:

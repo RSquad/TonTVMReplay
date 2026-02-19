@@ -16,6 +16,7 @@ from tonemuso.utils import b64_to_hex
 from tonemuso.emulation import TxStepEmulator, init_emulators
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
+from tonemuso.debug_dumper import get_dumper
 
 
 # No module-level globals; helpers are parameterized by cfg-derived values.
@@ -38,8 +39,8 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     # Emulators
     em = EmulatorExtern(emulator_path, config)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
-                       list(reversed(block['prev_block_data'][0]))]
+    prev_block_data = [list(block['prev_block_data'][1]), block['prev_block_data'][2],
+                       list(block['prev_block_data'][0])]  # no reverse
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
@@ -125,7 +126,7 @@ def process_result(outq, loglevel: int = 1):
             break
 
     tmp_s = 0
-    tmp_w = 0
+    tmp_w = []
     tmp_u = []
     if len(total_txs) > 0:
         for chunk in total_txs:
@@ -133,12 +134,12 @@ def process_result(outq, loglevel: int = 1):
                 if i['mode'] == 'success':
                     tmp_s += 1
                 elif i['mode'] == 'warning':
-                    tmp_w += 1
+                    tmp_w.append(i)
                 else:
                     tmp_u.append(i)
 
     if loglevel > 1 and (tmp_s or tmp_w or tmp_u):
-        logger.warning(f"Emulator status: {tmp_s} success, {tmp_w} warnings, {len(tmp_u)} errors")
+        logger.warning(f"Emulator status: {tmp_s} success, {len(tmp_w)} warnings, {len(tmp_u)} errors")
 
     return tmp_s, tmp_u, tmp_w
 
