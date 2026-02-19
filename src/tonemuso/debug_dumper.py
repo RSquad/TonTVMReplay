@@ -2,6 +2,7 @@
 Save debug dumps for failed transactions.
 Creates structured folders with BOC files for debugging.
 """
+import base64
 import json
 import os
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from tonpy import Cell
+from tonpy.types import StackEntry
 
 
 @dataclass
@@ -35,23 +37,39 @@ class TxDebugDump:
     is_tock: bool
 
 
+def _cell_to_bytes(cell: Cell) -> bytes:
+    """Convert Cell to bytes."""
+    boc = cell.to_boc()
+    if isinstance(boc, bytes):
+        return boc
+    elif isinstance(boc, str):
+        # Try hex first, then base64
+        try:
+            return bytes.fromhex(boc)
+        except ValueError:
+            return base64.b64decode(boc)
+    else:
+        return bytes(boc)
+
+
+def _cell_to_base64(cell: Optional[Cell]) -> Optional[str]:
+    """Convert Cell to base64 string."""
+    if cell is None:
+        return None
+    try:
+        boc_bytes = _cell_to_bytes(cell)
+        return base64.b64encode(boc_bytes).decode('ascii')
+    except Exception as e:
+        logger.warning(f"Failed to convert cell to base64: {e}")
+        return None
+
+
 def _save_boc(cell: Optional[Cell], path: str) -> bool:
     """Save a Cell as binary BOC file."""
     if cell is None:
         return False
     try:
-        boc = cell.to_boc()
-        if isinstance(boc, bytes):
-            boc_bytes = boc
-        elif isinstance(boc, str):
-            # Try hex first, then base64
-            try:
-                boc_bytes = bytes.fromhex(boc)
-            except ValueError:
-                import base64
-                boc_bytes = base64.b64decode(boc)
-        else:
-            boc_bytes = bytes(boc)
+        boc_bytes = _cell_to_bytes(cell)
         with open(path, "wb") as f:
             f.write(boc_bytes)
         return True
@@ -64,6 +82,28 @@ def _save_json(data: Any, path: str):
     """Save data as JSON file."""
     with open(path, "w") as f:
         json.dump(data, f, indent=2, default=str)
+
+
+def _prev_blocks_to_boc_base64(prev_blocks: List[Any]) -> Optional[str]:
+    """Serialize prev_blocks to BOC base64 using StackEntry (same as EmulatorExtern)."""
+    try:
+        boc_str = StackEntry(prev_blocks).serialize().to_boc()
+        # to_boc() returns base64 string directly in this case
+        if isinstance(boc_str, str):
+            # Check if it's already base64 or hex
+            try:
+                bytes.fromhex(boc_str)
+                # It's hex, convert to base64
+                return base64.b64encode(bytes.fromhex(boc_str)).decode('ascii')
+            except ValueError:
+                # Already base64
+                return boc_str
+        elif isinstance(boc_str, bytes):
+            return base64.b64encode(boc_str).decode('ascii')
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to serialize prev_blocks to BOC: {e}")
+        return None
 
 
 class DebugDumper:
@@ -110,8 +150,71 @@ class DebugDumper:
         }
         _save_json(error_full, os.path.join(folder, "error_info.json"))
 
+        # Generate emulator_test.json for Rust testing
+        self._save_emulator_test_json(dump, folder)
+
         logger.info(f"Saved debug dump: {folder}")
         return folder
+
+    def _save_emulator_test_json(self, dump: TxDebugDump, folder: str):
+        """Generate emulator_test.json with all data needed for Rust emulator testing."""
+        try:
+            # Build block_id array: [workchain, shard, seqno, root_hash_int, file_hash_int]
+            bi = dump.block_info
+            try:
+                root_hash_int = int(bi['root_hash'], 16) if isinstance(bi['root_hash'], str) else bi['root_hash']
+                file_hash_int = int(bi['file_hash'], 16) if isinstance(bi['file_hash'], str) else bi['file_hash']
+            except (ValueError, TypeError):
+                root_hash_int = bi['root_hash']
+                file_hash_int = bi['file_hash']
+            
+            block_id = [
+                bi['workchain'],
+                bi['shard'],
+                bi['seqno'],
+                root_hash_int,
+                file_hash_int,
+            ]
+
+            # Convert rand_seed to hex string
+            rand_seed = dump.rand_seed
+            if isinstance(rand_seed, int):
+                rand_seed_hex = hex(rand_seed)[2:].upper().zfill(64)
+                rand_seed_int = rand_seed
+            else:
+                rand_seed_hex = str(rand_seed).upper().zfill(64)
+                try:
+                    rand_seed_int = int(rand_seed, 16)
+                except (ValueError, TypeError):
+                    rand_seed_int = rand_seed
+
+            # Build the test JSON
+            emulator_test = {
+                "tx_hash": dump.tx_hash,
+                "lt": dump.lt,
+                "now": dump.now,
+                "is_tock": dump.is_tock,
+                "block_id": block_id,
+                "rand_seed": rand_seed_int,
+                "rand_seed_hex": rand_seed_hex,
+                "config_params_boc": _cell_to_base64(dump.config_cell),
+                "config_params_boc_error": None,
+                "libs_boc": _cell_to_base64(dump.libs_cell),
+                "libs_boc_error": None,
+                "prev_blocks_info_boc": _prev_blocks_to_boc_base64(dump.prev_blocks),
+                "prev_blocks_info_boc_error": None,
+                "prev_blocks_info": dump.prev_blocks,
+                "shard_account_boc": _cell_to_base64(dump.account_before),
+                "shard_account_boc_error": None,
+                "message_boc": _cell_to_base64(dump.in_msg),
+                "message_boc_error": None if dump.in_msg else "no_in_msg",
+                "tx_boc": _cell_to_base64(dump.expected_tx),
+                "tx_boc_error": None,
+            }
+
+            _save_json(emulator_test, os.path.join(folder, "emulator_test.json"))
+        except Exception as e:
+            logger.warning(f"Failed to generate emulator_test.json: {e}")
 
     def save_from_emulation_context(
         self,
@@ -145,9 +248,9 @@ class DebugDumper:
         }
 
         prev_blocks = [
-            list(reversed(block['prev_block_data'][1])),
+            list(block['prev_block_data'][1]),  # no reverse
             block['prev_block_data'][2],
-            list(reversed(block['prev_block_data'][0])),
+            list(block['prev_block_data'][0]),  # no reverse
         ]
 
         dump = TxDebugDump(
