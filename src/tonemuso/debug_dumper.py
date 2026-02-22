@@ -13,6 +13,7 @@ from loguru import logger
 from tonpy import Cell
 from tonpy.types import StackEntry
 
+from tonemuso.utils import normalize_prev_blocks_info
 
 @dataclass
 class TxDebugDump:
@@ -247,11 +248,11 @@ class DebugDumper:
             "file_hash": blk_id.file_hash,
         }
 
-        prev_blocks = [
+        prev_blocks = normalize_prev_blocks_info([
             list(block['prev_block_data'][1]),  # no reverse
             block['prev_block_data'][2],
             list(block['prev_block_data'][0]),  # no reverse
-        ]
+        ])
 
         dump = TxDebugDump(
             tx_hash=tx_hash,

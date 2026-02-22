@@ -19,6 +19,7 @@ from tonpy import Cell, VmDict
 from tonpy.autogen.block import Transaction, ShardAccount
 from tonpy.tvm.not_native.emulator_extern import EmulatorExtern
 
+from tonemuso.utils import normalize_prev_blocks_info
 
 def _load_boc(path: str) -> Optional[Cell]:
     if not os.path.exists(path):
@@ -92,6 +93,7 @@ def replay(dump_dir: str, emulator_path: str, verbose: bool = False) -> Dict[str
     error_info = _load_json(os.path.join(dump_dir, "error_info.json")) or {}
     block_info = _load_json(os.path.join(dump_dir, "block_info.json")) or {}
     prev_blocks = _load_json(os.path.join(dump_dir, "prev_blocks.json")) or []
+    prev_blocks = normalize_prev_blocks_info(prev_blocks)
 
     if account_before is None:
         raise RuntimeError("account_before.boc not found")

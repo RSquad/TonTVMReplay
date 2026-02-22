@@ -7,7 +7,7 @@ from tonpy.autogen.block import Transaction, MessageAny, ShardAccount
 from loguru import logger
 
 from tonemuso.diff import get_diff, get_colored_diff, make_json_dumpable, get_shard_account_diff
-from tonemuso.utils import hex_to_b64
+from tonemuso.utils import hex_to_b64, normalize_prev_blocks_info
 from tonemuso.debug_dumper import get_dumper
 
 
@@ -31,9 +31,11 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
     em = EmulatorExtern(emulator_path, config)
     em.set_rand_seed(block['rand_seed'])
 
-    prev_block_data = [list(block['prev_block_data'][1]),  # prev 16 (no reverse)
-                       block['prev_block_data'][2],  # key block
-                       list(block['prev_block_data'][0])]  # prev 16 by 100 (no reverse)  # prev 16 by 100
+    prev_block_data = normalize_prev_blocks_info([
+        list(block['prev_block_data'][1]),  # prev 16 (no reverse)
+        block['prev_block_data'][2],  # key block
+        list(block['prev_block_data'][0]),  # prev 16 by 100 (no reverse)
+    ])
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 

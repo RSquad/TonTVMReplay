@@ -12,7 +12,7 @@ from tonpy import Address
 from loguru import logger
 from tqdm import tqdm
 
-from tonemuso.utils import b64_to_hex
+from tonemuso.utils import b64_to_hex, normalize_prev_blocks_info
 from tonemuso.emulation import TxStepEmulator, init_emulators
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
@@ -44,8 +44,11 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     # Emulators
     em = EmulatorExtern(emulator_path, config)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(block['prev_block_data'][1]), block['prev_block_data'][2],
-                       list(block['prev_block_data'][0])]  # no reverse
+    prev_block_data = normalize_prev_blocks_info([
+        list(block['prev_block_data'][1]),
+        block['prev_block_data'][2],
+        list(block['prev_block_data'][0]),
+    ])  # no reverse
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
