@@ -783,7 +783,13 @@ class TxStepEmulator:
         if self.em.transaction.get_hash() != tx['tx'].get_hash():
             # Dump emulated tx BOCs for debugging mismatches
             try:
-                self._dump_post_emulation(tx, tx.get('lt'), tx.get('now'))
+                if isinstance(tx, dict):
+                    lt = tx.get('lt')
+                    now = tx.get('now')
+                else:
+                    lt = getattr(tx, 'lt', None)
+                    now = getattr(tx, 'now', None)
+                self._dump_post_emulation(tx, lt, now)
             except Exception as e:
                 logger.warning(f"Failed to dump post-emulation tx bocs: {e}")
             diff, address = get_diff(tx['tx'], self.em.transaction.to_cell(), to_boc=self.use_boc_for_diff)

@@ -3,6 +3,9 @@
 # Quick run script for TonTVMReplay
 # Activates venv, loads .env, and runs tonemuso
 
+echo "Cleaning up old logs and warnings..."
+rm -f warnings.json tonemuso_run.log
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
