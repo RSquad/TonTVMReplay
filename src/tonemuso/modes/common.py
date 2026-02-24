@@ -13,9 +13,9 @@ from tonpy import Address
 from loguru import logger
 from tqdm import tqdm
 
-from tonemuso.utils import b64_to_hex
 from tonemuso.diff import make_json_dumpable
-from tonemuso.emulation import TxStepEmulator, init_emulators, set_emulator_verbosity, _get_env_int, _create_emulator
+from tonemuso.utils import b64_to_hex, normalize_prev_blocks_info
+from tonemuso.emulation import TxStepEmulator, init_emulators, _get_env_int, _create_emulator, set_emulator_verbosity
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
 from tonemuso.debug_dumper import get_dumper, init_dumper
@@ -169,8 +169,11 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     em = _create_emulator(emulator_path, config, vm_log_verbosity)
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
     em.set_rand_seed(block['rand_seed'])
-    prev_block_data = [list(reversed(block['prev_block_data'][1])), block['prev_block_data'][2],
-                       list(reversed(block['prev_block_data'][0]))]
+    prev_block_data = normalize_prev_blocks_info([
+        list(block['prev_block_data'][1]),
+        block['prev_block_data'][2],
+        list(block['prev_block_data'][0]),
+    ])  # no reverse
     em.set_prev_blocks_info(prev_block_data)
     em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
 
@@ -187,12 +190,13 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
         if not process_this_chunk:
             return []
 
-    # Iterate
+    # Iterate - sort by lt to ensure correct state progression
+    txs_sorted = sorted(txs, key=lambda x: x['lt'])
     account_state_em1 = initial_account_state
     account_state_em2 = initial_account_state
     step = TxStepEmulator(block=block, loglevel=loglevel, color_schema=color_schema, em=em,
                           account_state_em1=account_state_em1, em2=em2, account_state_em2=account_state_em2)
-    for tx in txs:
+    for tx in txs_sorted:
         try:
             if txs_whitelist is not None and tx['tx'].get_hash() not in txs_whitelist:
                 _out, account_state_em1, _ns2, _om = step.emulate(tx, extract_out_msgs=False)
@@ -213,11 +217,14 @@ def collect_raw(data, trace_tx_hashes_hex: Set[str], config_override: dict = Non
                 emulator_unchanged_path: Optional[str] = None):
     block, initial_account_state, txs = data
 
+    # Sort by lt to ensure correct state progression
+    txs_sorted = sorted(txs, key=lambda x: x['lt'] if isinstance(x, dict) else x.lt)
+
     # Build TxRecord objects and, if a non-empty trace set is provided, attach non-trace preceding txs
     tx_objs: List[TxRecord] = []
     buffer: List[TxRecord] = []  # holds non-trace txs until the next in-trace tx
     use_buffer = bool(trace_tx_hashes_hex) and len(trace_tx_hashes_hex) > 0
-    for t in tqdm(txs, desc="Pre-emulate data"):
+    for t in tqdm(txs_sorted, desc="Pre-emulate data"):
         if isinstance(t, dict):
             rec = TxRecord(tx=t['tx'], lt=t['lt'], now=t['now'], is_tock=t['is_tock'])
         else:
