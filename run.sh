@@ -64,8 +64,11 @@ rm -f failed_traces_summary.json
 rm -f trace.json
 rm -f tonemuso_run.log
 rm -f nohup.out
-
 # Clean up dump directories if they exist and are set
+if [ -n "$DEBUG_DUMPS_DIR" ] && [ -d "$DEBUG_DUMPS_DIR" ]; then
+    echo "Cleaning DEBUG_DUMPS_DIR: $DEBUG_DUMPS_DIR"
+    rm -rf "$DEBUG_DUMPS_DIR"/*
+fi
 if [ -n "$EMULATOR_PRECALL_DUMP_DIR" ] && [ -d "$EMULATOR_PRECALL_DUMP_DIR" ]; then
     echo "Cleaning EMULATOR_PRECALL_DUMP_DIR: $EMULATOR_PRECALL_DUMP_DIR"
     rm -rf "$EMULATOR_PRECALL_DUMP_DIR"/*
