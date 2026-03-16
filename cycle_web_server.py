@@ -24,6 +24,7 @@ REPORTS_DIR = ROOT / "reports"
 STATE_PATH = REPORTS_DIR / "runs.json"
 ENV_PATH = ROOT / ".env"
 DEBUG_DUMPS_DIR = ROOT / "debug_dumps"
+RUN_LOG_PATH = ROOT / "cycle_run.log"
 
 DEFAULT_RANGE_SIZE = int(os.getenv("CYCLE_RANGE_SIZE", "1000"))
 DEFAULT_RUN_TIMEOUT_SEC = int(os.getenv("CYCLE_RUN_TIMEOUT_SEC", "7200"))
@@ -33,6 +34,56 @@ DEFAULT_POLL_SEC = int(os.getenv("CYCLE_POLL_SEC", "60"))
 DEFAULT_HOST = os.getenv("CYCLE_WEB_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.getenv("CYCLE_WEB_PORT", "8090"))
 TONCENTER_INFO_URL = os.getenv("TONCENTER_INFO_URL", "https://toncenter.com/api/v2/getMasterchainInfo")
+
+
+class DailyZipLogger:
+    def __init__(self, log_path: Path, archive_dir: Path) -> None:
+        self.log_path = log_path
+        self.archive_dir = archive_dir
+        self.lock = threading.Lock()
+        self.current_day = datetime.now(timezone.utc).date().isoformat()
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        # Start each launch with an empty log file.
+        self.log_path.write_text("", encoding="utf-8")
+
+    def _archive_current_log(self, day: str) -> None:
+        if not self.log_path.exists() or self.log_path.stat().st_size == 0:
+            return
+        base_name = f"cycle_run_{day}.zip"
+        zip_path = self.archive_dir / base_name
+        if zip_path.exists():
+            ts = datetime.now(timezone.utc).strftime("%H%M%S")
+            zip_path = self.archive_dir / f"cycle_run_{day}_{ts}.zip"
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(self.log_path, arcname="cycle_run.log")
+
+    def _rotate_if_needed(self, now_dt: datetime) -> None:
+        today = now_dt.date().isoformat()
+        if today == self.current_day:
+            return
+        self._archive_current_log(self.current_day)
+        self.log_path.write_text("", encoding="utf-8")
+        self.current_day = today
+
+    def log(self, level: str, message: str) -> None:
+        now = datetime.now(timezone.utc)
+        with self.lock:
+            self._rotate_if_needed(now)
+            ts = now.strftime("%Y-%m-%d %H:%M:%S")
+            line = f"[{ts}] [{level}] {message}\n"
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(line)
+
+
+LOGGER = DailyZipLogger(RUN_LOG_PATH, REPORTS_DIR)
+
+
+def log_info(message: str) -> None:
+    LOGGER.log("INFO", message)
+
+
+def log_error(message: str) -> None:
+    LOGGER.log("ERROR", message)
 
 
 @dataclass
@@ -273,6 +324,7 @@ def _worker_loop(state: State) -> None:
     if from_seqno <= 0:
         from_seqno = to_seqno - DEFAULT_RANGE_SIZE
     _update_env_seqnos(to_seqno=to_seqno, from_seqno=from_seqno)
+    log_info(f"Worker started with initial range {from_seqno}-{to_seqno}")
 
     while not state.stop_event.is_set():
         run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -294,11 +346,14 @@ def _worker_loop(state: State) -> None:
         while attempt <= DEFAULT_MAX_RESTARTS and not state.stop_event.is_set():
             attempt += 1
             state.set_current(attempt=attempt, message=f"running attempt {attempt}")
+            log_info(f"Run {run_id}: start attempt {attempt} for range {from_seqno}-{to_seqno}")
             exit_code, _ = _run_once(timeout_sec=DEFAULT_RUN_TIMEOUT_SEC)
             if exit_code == 0:
+                log_info(f"Run {run_id}: attempt {attempt} finished successfully")
                 break
             note = f"run.sh exited with code {exit_code}"
             state.set_current(status="restarting", message=note)
+            log_error(f"Run {run_id}: {note}")
             if attempt <= DEFAULT_MAX_RESTARTS:
                 time.sleep(DEFAULT_RESTART_DELAY_SEC)
 
@@ -331,6 +386,10 @@ def _worker_loop(state: State) -> None:
             note=note,
         )
         state.add_record(record)
+        log_info(
+            f"Run {run_id}: finished status={status}, attempts={attempt}, "
+            f"errors={has_errors}, archive={archive_name or '-'}"
+        )
 
         state.set_current(
             status="waiting",
@@ -342,12 +401,15 @@ def _worker_loop(state: State) -> None:
         )
 
         if not _wait_for_next_window(to_seqno, state.stop_event):
+            log_info("Worker stop requested while waiting for next range")
             break
 
         from_seqno, to_seqno = _next_range(from_seqno, to_seqno)
         _update_env_seqnos(to_seqno=to_seqno, from_seqno=from_seqno)
+        log_info(f"Switched to next range {from_seqno}-{to_seqno}")
 
     state.set_current(status="stopped", message="worker stopped")
+    log_info("Worker stopped")
 
 
 def _parse_bool_filter(v: Optional[str]) -> Optional[bool]:
@@ -682,8 +744,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "not found")
 
     def log_message(self, fmt: str, *args: object) -> None:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{ts}] web: " + (fmt % args), flush=True)
+        log_info("web: " + (fmt % args))
 
 
 def main() -> int:
@@ -709,19 +770,21 @@ def main() -> int:
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    print(f"Cycle web server started at http://{DEFAULT_HOST}:{DEFAULT_PORT}", flush=True)
+    log_info(f"Cycle web server started at http://{DEFAULT_HOST}:{DEFAULT_PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        log_info("KeyboardInterrupt received")
         pass
     except Exception:
-        traceback.print_exc()
+        log_error(f"Fatal server error: {traceback.format_exc()}")
         return 1
     finally:
         state.stop_event.set()
         if state.worker_thread is not None:
             state.worker_thread.join(timeout=10)
         server.server_close()
+        log_info("Cycle web server stopped")
 
     return 0
 
