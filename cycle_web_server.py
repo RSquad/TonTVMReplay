@@ -231,8 +231,8 @@ def _build_archive_name(range_from: int, range_to: int) -> str:
     return f"report_{range_from}_{range_to}_{ts}.zip"
 
 
-def _archive_results(range_from: int, range_to: int) -> Optional[str]:
-    if not _has_error_artifacts():
+def _archive_results(range_from: int, range_to: int, force: bool = False) -> Optional[str]:
+    if not force and not _has_error_artifacts():
         return None
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -342,6 +342,7 @@ def _worker_loop(state: State) -> None:
         attempt = 0
         exit_code = 0
         note = None
+        timed_out = False
         run_start = time.time()
         while attempt <= DEFAULT_MAX_RESTARTS and not state.stop_event.is_set():
             attempt += 1
@@ -351,6 +352,13 @@ def _worker_loop(state: State) -> None:
             if exit_code == 0:
                 log_info(f"Run {run_id}: attempt {attempt} finished successfully")
                 break
+            timed_out = exit_code == 124
+            if timed_out:
+                note = f"run.sh timed out after {DEFAULT_RUN_TIMEOUT_SEC}s"
+                state.set_current(status="timed_out", message=note)
+                log_error(f"Run {run_id}: {note}; moving to next range")
+                break
+
             note = f"run.sh exited with code {exit_code}"
             state.set_current(status="restarting", message=note)
             log_error(f"Run {run_id}: {note}")
@@ -358,7 +366,7 @@ def _worker_loop(state: State) -> None:
                 time.sleep(DEFAULT_RESTART_DELAY_SEC)
 
         has_errors = _has_error_artifacts()
-        archive_name = _archive_results(from_seqno, to_seqno) if has_errors else None
+        archive_name = _archive_results(from_seqno, to_seqno, force=(exit_code != 0)) if (has_errors or exit_code != 0) else None
         duration_sec = int(time.time() - run_start)
 
         if exit_code == 0:
@@ -367,6 +375,9 @@ def _worker_loop(state: State) -> None:
                 note = note or "errors found, archive created"
             else:
                 note = "no errors in range"
+        elif timed_out:
+            status = "timed_out"
+            note = note or f"timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; moved to next range"
         else:
             status = "failed"
             if note is None:
@@ -399,6 +410,12 @@ def _worker_loop(state: State) -> None:
             attempt=0,
             started_at=None,
         )
+
+        if timed_out:
+            from_seqno, to_seqno = _next_range(from_seqno, to_seqno)
+            _update_env_seqnos(to_seqno=to_seqno, from_seqno=from_seqno)
+            log_info(f"Timeout on run {run_id}; switched immediately to next range {from_seqno}-{to_seqno}")
+            continue
 
         if not _wait_for_next_window(to_seqno, state.stop_event):
             log_info("Worker stop requested while waiting for next range")
