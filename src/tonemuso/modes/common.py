@@ -24,6 +24,35 @@ from tonemuso.debug_dumper import get_dumper, init_dumper
 # No module-level globals; helpers are parameterized by cfg-derived values.
 
 
+def cleanup_scanner(scanner, outq=None, *, stop: bool = True, join_timeout: float = 10.0) -> None:
+    """
+    Best-effort cleanup for BlockScanner and its multiprocessing queue.
+
+    This avoids leaked multiprocessing semaphores on interpreter shutdown.
+    """
+    if scanner is not None:
+        if stop and hasattr(scanner, "_stop"):
+            try:
+                scanner._stop()
+            except Exception:
+                pass
+        if hasattr(scanner, "join"):
+            try:
+                scanner.join(timeout=join_timeout)
+            except Exception:
+                pass
+
+    if outq is not None:
+        try:
+            outq.close()
+        except Exception:
+            pass
+        try:
+            outq.join_thread()
+        except Exception:
+            pass
+
+
 def _dump_prev_blocks(block: Dict[str, Any], dump_dir: Optional[str]) -> None:
     log_enabled = _get_env_int("EMULATOR_PREV_BLOCKS_DUMP_LOG", 0) > 0
     blk = block.get('block_id')

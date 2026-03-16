@@ -3,3 +3,4 @@ deepdiff
 cytoolz
 requests
 tqdm>=4.65.0
+loguru

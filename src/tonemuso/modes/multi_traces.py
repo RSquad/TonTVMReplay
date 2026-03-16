@@ -8,7 +8,7 @@ from tonpy.blockscanner.blockscanner import *
 from tonpy.autogen.block import BlockId, Block, BlockInfo
 
 from tonemuso.config import Config
-from tonemuso.modes.common import collect_raw, worker_init, process_one_trace_worker, build_preindex
+from tonemuso.modes.common import collect_raw, worker_init, process_one_trace_worker, build_preindex, cleanup_scanner
 from tonemuso.utils import count_modes_tree
 
 
@@ -69,7 +69,7 @@ def run_scanner_with_failover(cfg: Config, lcparams: dict, from_seqno: int, to_s
         )
         
         scanner.start()
-        
+
         try:
             raw_chunks_all = []
             start_time = time_module.time()
@@ -81,11 +81,8 @@ def run_scanner_with_failover(cfg: Config, lcparams: dict, from_seqno: int, to_s
                 elapsed = time_module.time() - start_time
                 if elapsed > max_wait_time:
                     logger.error(f"Scanner timeout after {elapsed:.1f}s on liteserver attempt {attempt + 1}")
-                    # Force stop scanner (it might be hanging in threads)
-                    try:
-                        scanner.done = True  # Try to signal done
-                    except Exception:
-                        pass
+                    # Stop scanner (it might be hanging in workers/threads)
+                    cleanup_scanner(scanner, outq, stop=True, join_timeout=5.0)
                     break
                 
                 # Collect chunks
@@ -122,24 +119,14 @@ def run_scanner_with_failover(cfg: Config, lcparams: dict, from_seqno: int, to_s
             # Check if we got results
             if scanner.done and raw_chunks_all:
                 logger.info(f"Successfully loaded {len(raw_chunks_all)} chunks")
-                # Cleanup before returning
-                try:
-                    outq.close()
-                    outq.join_thread()
-                except Exception:
-                    pass
+                cleanup_scanner(scanner, outq, stop=False)
                 return raw_chunks_all
             elif raw_chunks_all:
                 logger.warning(f"Scanner incomplete but got {len(raw_chunks_all)} chunks, may be partial")
                 # If we have some data and this is the last attempt, use it
                 if attempt == max_retries - 1:
                     logger.warning("Last attempt, using partial data")
-                    # Cleanup before returning
-                    try:
-                        outq.close()
-                        outq.join_thread()
-                    except Exception:
-                        pass
+                    cleanup_scanner(scanner, outq, stop=False)
                     return raw_chunks_all
             else:
                 logger.error(f"Scanner failed to load any data on attempt {attempt + 1}")
@@ -149,12 +136,8 @@ def run_scanner_with_failover(cfg: Config, lcparams: dict, from_seqno: int, to_s
             import traceback
             logger.debug(traceback.format_exc())
         
-        # Cleanup queue before next retry
-        try:
-            outq.close()
-            outq.join_thread()
-        except Exception:
-            pass
+        # Cleanup scanner and queue before next retry
+        cleanup_scanner(scanner, outq, stop=True, join_timeout=5.0)
         
         # If not the last attempt, continue to next server
         if attempt < max_retries - 1:

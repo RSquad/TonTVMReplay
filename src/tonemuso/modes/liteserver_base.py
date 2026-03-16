@@ -5,7 +5,7 @@ from tonpy.blockscanner.blockscanner import *
 from tonpy.autogen.block import BlockId, Block
 
 from tonemuso.config import Config
-from tonemuso.modes.common import process_blocks, process_result
+from tonemuso.modes.common import process_blocks, process_result, cleanup_scanner
 from tonemuso.debug_dumper import init_dumper, get_dumper
 
 
@@ -48,29 +48,25 @@ def run(cfg: Config):
     unsuccess = []
     unique_accounts = set()
 
-    while not scanner.done:
+    try:
+        while not scanner.done:
+            tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
+            success += tmp_s
+            warnings.extend(tmp_w)
+            unsuccess.extend(tmp_u)
+            unique_accounts.update(tmp_addrs)
+            sleep(1)
+
         tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
         success += tmp_s
         warnings.extend(tmp_w)
         unsuccess.extend(tmp_u)
         unique_accounts.update(tmp_addrs)
-        sleep(1)
-
-    tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
-    success += tmp_s
-    warnings.extend(tmp_w)
-    unsuccess.extend(tmp_u)
-    unique_accounts.update(tmp_addrs)
+    finally:
+        cleanup_scanner(scanner, outq, stop=False)
 
     logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {warnings} warnings")
     logger.warning(f"Total unique accounts processed: {len(unique_accounts)}")
-    
-    # Cleanup multiprocessing resources
-    try:
-        outq.close()
-        outq.join_thread()
-    except Exception:
-        pass
     
     if unsuccess:
         from collections import Counter

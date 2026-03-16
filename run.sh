@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+
 # Quick run script for TonTVMReplay
 # Activates venv, loads .env, and runs tonemuso
 
@@ -100,8 +102,8 @@ echo "================================================"
 # Run tonemuso and capture output to log file
 tonemuso "$@" 2>&1 | tee tonemuso_run.log
 
-# Capture exit code
-EXIT_CODE=$?
+# Capture tonemuso exit code (not tee)
+EXIT_CODE=${PIPESTATUS[0]}
 
 # Generate report if failed_txs.json exists
 if [ -f "failed_txs.json" ] || [ -f "tonemuso_run.log" ]; then

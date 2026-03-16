@@ -9,7 +9,7 @@ from tonpy.autogen.block import BlockId
 from tonemuso.config import Config
 from tonemuso.trace_runner import TraceOrderedRunner
 from tonemuso.utils import b64_to_hex, count_modes_tree
-from tonemuso.modes.common import collect_raw
+from tonemuso.modes.common import collect_raw, cleanup_scanner
 
 
 def _short_b64(b64: str, head: int = 6, tail: int = 6) -> str:
@@ -175,20 +175,23 @@ def run(cfg: Config):
     scanner.start()
 
     raw_chunks = []
-    while not scanner.done:
+    try:
+        while not scanner.done:
+            while True:
+                try:
+                    raw_chunk = outq.get_nowait()
+                    raw_chunks.extend(raw_chunk)
+                except QueueEmpty:
+                    break
+            sleep(1)
         while True:
             try:
                 raw_chunk = outq.get_nowait()
                 raw_chunks.extend(raw_chunk)
             except QueueEmpty:
                 break
-        sleep(1)
-    while True:
-        try:
-            raw_chunk = outq.get_nowait()
-            raw_chunks.extend(raw_chunk)
-        except QueueEmpty:
-            break
+    finally:
+        cleanup_scanner(scanner, outq, stop=False)
 
     runner = TraceOrderedRunner(raw_chunks=raw_chunks,
                                 config_override=cfg.c7_rewrite,
