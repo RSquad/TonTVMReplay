@@ -449,6 +449,18 @@ def _filter_history(history: List[RunRecord], query: str, status_filter: str,
     return out
 
 
+def _tail_lines(path: Path, max_lines: int) -> List[str]:
+    if max_lines <= 0:
+        return []
+    if not path.exists() or not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    if len(lines) <= max_lines:
+        return lines
+    return lines[-max_lines:]
+
+
 def _html_page(current: Dict[str, object], history: List[RunRecord], query: str,
                status_filter: str, has_errors_filter: Optional[bool]) -> str:
     rows = []
@@ -720,6 +732,37 @@ class Handler(BaseHTTPRequestHandler):
                 "port": DEFAULT_PORT,
                 "details": info,
             })
+            return
+
+        if route_path == "/logs":
+            try:
+                lines_requested = int(query.get("lines", ["200"])[0])
+            except Exception:
+                lines_requested = 200
+            lines_requested = max(1, min(lines_requested, 500))
+
+            lines = _tail_lines(RUN_LOG_PATH, lines_requested)
+            body = (
+                "<!doctype html>\n"
+                "<html><head><meta charset=\"utf-8\" />"
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />"
+                "<title>Cycle Logs</title>"
+                "<style>"
+                "body{margin:0;padding:16px;background:#101415;color:#d8e2e6;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}"
+                "h1{margin:0 0 10px;font-size:18px;color:#f1f5f6;}"
+                "a{color:#78c4ff;}"
+                "pre{white-space:pre-wrap;word-wrap:break-word;background:#131a1d;border:1px solid #2a3b43;border-radius:8px;padding:12px;line-height:1.35;font-size:12px;}"
+                "</style></head><body>"
+                f"<h1>cycle_run.log (last {lines_requested} lines)</h1>"
+                "<div><a href=\"/\">Back</a> | <a href=\"/logs?lines=500\">Show 500</a></div>"
+                f"<pre>{html.escape(''.join(lines) if lines else 'No log lines yet')}</pre>"
+                "</body></html>"
+            ).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         if route_path.startswith("/download/"):
