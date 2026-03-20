@@ -27,7 +27,7 @@ DEBUG_DUMPS_DIR = ROOT / "debug_dumps"
 RUN_LOG_PATH = ROOT / "cycle_run.log"
 
 DEFAULT_RANGE_SIZE = int(os.getenv("CYCLE_RANGE_SIZE", "1000"))
-DEFAULT_RUN_TIMEOUT_SEC = int(os.getenv("CYCLE_RUN_TIMEOUT_SEC", "7200"))
+DEFAULT_RUN_TIMEOUT_SEC = int(os.getenv("CYCLE_RUN_TIMEOUT_SEC", "9000"))
 DEFAULT_RESTART_DELAY_SEC = int(os.getenv("CYCLE_RESTART_DELAY_SEC", "15"))
 DEFAULT_MAX_RESTARTS = int(os.getenv("CYCLE_MAX_RESTARTS", "3"))
 DEFAULT_POLL_SEC = int(os.getenv("CYCLE_POLL_SEC", "60"))
@@ -226,6 +226,17 @@ def _has_error_artifacts() -> bool:
     return _debug_dumps_non_empty()
 
 
+def _tonemuso_log_requires_live_seqno() -> bool:
+    log_path = ROOT / "tonemuso_run.log"
+    if not log_path.exists() or not log_path.is_file():
+        return False
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False
+    return "state already gc'd" in content
+
+
 def _build_archive_name(range_from: int, range_to: int) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"report_{range_from}_{range_to}_{ts}.zip"
@@ -297,6 +308,11 @@ def _run_once(timeout_sec: int) -> Tuple[int, str]:
 
 def _next_range(current_from: int, current_to: int) -> Tuple[int, int]:
     return current_to, current_to + DEFAULT_RANGE_SIZE
+
+
+def _range_from_live_seqno() -> Tuple[int, int]:
+    to_seqno = _get_seqno()
+    return to_seqno - DEFAULT_RANGE_SIZE, to_seqno
 
 
 def _wait_for_next_window(target_to: int, stop_event: threading.Event) -> bool:
@@ -411,11 +427,46 @@ def _worker_loop(state: State) -> None:
             started_at=None,
         )
 
+        use_live_seqno_next = _tonemuso_log_requires_live_seqno()
+        if use_live_seqno_next:
+            log_info(
+                f"Run {run_id}: detected 'state already gc'd' in tonemuso_run.log; "
+                "next iteration will use live seqno"
+            )
+
         if timed_out:
-            from_seqno, to_seqno = _next_range(from_seqno, to_seqno)
+            if use_live_seqno_next:
+                try:
+                    from_seqno, to_seqno = _range_from_live_seqno()
+                except Exception as exc:
+                    log_error(
+                        f"Run {run_id}: failed to fetch live seqno after GC detection: {exc}; "
+                        "falling back to sequential range"
+                    )
+                    from_seqno, to_seqno = _next_range(from_seqno, to_seqno)
+            else:
+                from_seqno, to_seqno = _next_range(from_seqno, to_seqno)
             _update_env_seqnos(to_seqno=to_seqno, from_seqno=from_seqno)
-            log_info(f"Timeout on run {run_id}; switched immediately to next range {from_seqno}-{to_seqno}")
+            if use_live_seqno_next:
+                log_info(
+                    f"Timeout on run {run_id}; switched immediately to live range {from_seqno}-{to_seqno}"
+                )
+            else:
+                log_info(f"Timeout on run {run_id}; switched immediately to next range {from_seqno}-{to_seqno}")
             continue
+
+        if use_live_seqno_next:
+            try:
+                from_seqno, to_seqno = _range_from_live_seqno()
+            except Exception as exc:
+                log_error(
+                    f"Run {run_id}: failed to fetch live seqno after GC detection: {exc}; "
+                    "falling back to sequential wait"
+                )
+            else:
+                _update_env_seqnos(to_seqno=to_seqno, from_seqno=from_seqno)
+                log_info(f"Run {run_id}: switched immediately to live range {from_seqno}-{to_seqno}")
+                continue
 
         if not _wait_for_next_window(to_seqno, state.stop_event):
             log_info("Worker stop requested while waiting for next range")
