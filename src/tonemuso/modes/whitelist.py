@@ -74,7 +74,7 @@ def run(cfg: Config):
         unsuccess.extend(tmp_u)
         unique_accounts.update(tmp_addrs)
     finally:
-        cleanup_scanner(scanner, outq, stop=False)
+        cleanup_scanner(scanner, outq, stop=True)
 
     logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {warnings} warnings")
     logger.warning(f"Total unique accounts processed: {len(unique_accounts)}")

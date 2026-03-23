@@ -191,7 +191,7 @@ def run(cfg: Config):
             except QueueEmpty:
                 break
     finally:
-        cleanup_scanner(scanner, outq, stop=False)
+        cleanup_scanner(scanner, outq, stop=True)
 
     runner = TraceOrderedRunner(raw_chunks=raw_chunks,
                                 config_override=cfg.c7_rewrite,

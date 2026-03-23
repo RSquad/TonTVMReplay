@@ -119,14 +119,14 @@ def run_scanner_with_failover(cfg: Config, lcparams: dict, from_seqno: int, to_s
             # Check if we got results
             if scanner.done and raw_chunks_all:
                 logger.info(f"Successfully loaded {len(raw_chunks_all)} chunks")
-                cleanup_scanner(scanner, outq, stop=False)
+                cleanup_scanner(scanner, outq, stop=True)
                 return raw_chunks_all
             elif raw_chunks_all:
                 logger.warning(f"Scanner incomplete but got {len(raw_chunks_all)} chunks, may be partial")
                 # If we have some data and this is the last attempt, use it
                 if attempt == max_retries - 1:
                     logger.warning("Last attempt, using partial data")
-                    cleanup_scanner(scanner, outq, stop=False)
+                    cleanup_scanner(scanner, outq, stop=True)
                     return raw_chunks_all
             else:
                 logger.error(f"Scanner failed to load any data on attempt {attempt + 1}")
