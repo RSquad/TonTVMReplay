@@ -214,7 +214,7 @@ def _debug_dumps_non_empty() -> bool:
     return False
 
 
-def _has_error_artifacts() -> bool:
+def _has_report_error_files() -> bool:
     checks = [
         ROOT / "failed_txs_pretty.json",
         ROOT / "failed_txs.json",
@@ -223,7 +223,11 @@ def _has_error_artifacts() -> bool:
     for item in checks:
         if item.exists() and item.stat().st_size > 0:
             return True
-    return _debug_dumps_non_empty()
+    return False
+
+
+def _has_error_artifacts() -> bool:
+    return _has_report_error_files() or _debug_dumps_non_empty()
 
 
 def _tonemuso_log_requires_live_seqno() -> bool:
@@ -381,16 +385,24 @@ def _worker_loop(state: State) -> None:
             if attempt <= DEFAULT_MAX_RESTARTS:
                 time.sleep(DEFAULT_RESTART_DELAY_SEC)
 
+        has_report_errors = _has_report_error_files()
         has_errors = _has_error_artifacts()
-        archive_name = _archive_results(from_seqno, to_seqno, force=(exit_code != 0)) if (has_errors or exit_code != 0) else None
+        # Keep downloads for failed runs with report artifacts only.
+        archive_name = _archive_results(from_seqno, to_seqno) if (exit_code != 0 and has_report_errors) else None
         duration_sec = int(time.time() - run_start)
 
         if exit_code == 0:
             status = "success_with_errors" if has_errors else "success_clean"
             if has_errors:
-                note = note or "errors found, archive created"
+                note = note or "errors found during successful run"
             else:
                 note = "no errors in range"
+        elif not has_report_errors:
+            status = "error_no_artifacts"
+            if timed_out:
+                note = note or f"run.sh timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; no error artifacts found"
+            else:
+                note = note or f"run.sh failed with code {exit_code}; no error artifacts found"
         elif timed_out:
             status = "timed_out"
             note = note or f"timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; moved to next range"
@@ -533,12 +545,12 @@ def _html_page(current: Dict[str, object], history: List[RunRecord], query: str,
                status_filter: str, has_errors_filter: Optional[bool]) -> str:
     rows = []
     for r in history:
-        download = "-"
+        download = "not available"
         if r.archive_name:
             dl = quote(r.archive_name)
             download = f'<a href="/download/{dl}">{r.archive_name}</a>'
-        elif not r.has_errors:
-            download = "no errors"
+        elif r.status == "error_no_artifacts":
+            download = "no artifacts"
 
         rows.append(
             "<tr>"
@@ -690,7 +702,9 @@ a:hover {{ text-decoration: underline; }}
                     <option value="all" {"selected" if status_esc == "all" else ""}>All statuses</option>
                     <option value="success_clean" {"selected" if status_esc == "success_clean" else ""}>success_clean</option>
                     <option value="success_with_errors" {"selected" if status_esc == "success_with_errors" else ""}>success_with_errors</option>
+                    <option value="timed_out" {"selected" if status_esc == "timed_out" else ""}>timed_out</option>
                     <option value="failed" {"selected" if status_esc == "failed" else ""}>failed</option>
+                    <option value="error_no_artifacts" {"selected" if status_esc == "error_no_artifacts" else ""}>error_no_artifacts</option>
                 </select>
                 <select name="has_errors">
                     <option value="all" {"selected" if selected_has_errors == "all" else ""}>Errors: any</option>
