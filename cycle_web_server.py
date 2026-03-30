@@ -28,8 +28,6 @@ RUN_LOG_PATH = ROOT / "cycle_run.log"
 
 DEFAULT_RANGE_SIZE = int(os.getenv("CYCLE_RANGE_SIZE", "1000"))
 DEFAULT_RUN_TIMEOUT_SEC = int(os.getenv("CYCLE_RUN_TIMEOUT_SEC", "9000"))
-DEFAULT_RESTART_DELAY_SEC = int(os.getenv("CYCLE_RESTART_DELAY_SEC", "15"))
-DEFAULT_MAX_RESTARTS = int(os.getenv("CYCLE_MAX_RESTARTS", "3"))
 DEFAULT_POLL_SEC = int(os.getenv("CYCLE_POLL_SEC", "60"))
 DEFAULT_HOST = os.getenv("CYCLE_WEB_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.getenv("CYCLE_WEB_PORT", "8090"))
@@ -94,7 +92,6 @@ class RunRecord:
     started_at: str
     finished_at: Optional[str]
     status: str
-    attempts: int
     has_errors: bool
     archive_name: Optional[str]
     duration_sec: Optional[int]
@@ -111,7 +108,6 @@ class State:
             "message": "not started",
             "from_seqno": None,
             "to_seqno": None,
-            "attempt": 0,
             "started_at": None,
         }
         self.history: List[RunRecord] = []
@@ -154,6 +150,8 @@ def _load_state() -> List[RunRecord]:
         raw = json.loads(STATE_PATH.read_text(encoding="utf-8"))
         out: List[RunRecord] = []
         for item in raw:
+            # Backward compatibility with old saved records.
+            item.pop("attempts", None)
             out.append(RunRecord(**item))
         return out
     except Exception:
@@ -348,38 +346,27 @@ def _worker_loop(state: State) -> None:
 
         state.set_current(
             status="running",
-            message="test in progress",
+            message="running",
             from_seqno=from_seqno,
             to_seqno=to_seqno,
-            attempt=0,
             started_at=started,
         )
 
-        attempt = 0
-        exit_code = 0
         note = None
-        timed_out = False
         run_start = time.time()
-        while attempt <= DEFAULT_MAX_RESTARTS and not state.stop_event.is_set():
-            attempt += 1
-            state.set_current(attempt=attempt, message=f"running attempt {attempt}")
-            log_info(f"Run {run_id}: start attempt {attempt} for range {from_seqno}-{to_seqno}")
-            exit_code, _ = _run_once(timeout_sec=DEFAULT_RUN_TIMEOUT_SEC)
-            if exit_code == 0:
-                log_info(f"Run {run_id}: attempt {attempt} finished successfully")
-                break
-            timed_out = exit_code == 124
-            if timed_out:
-                note = f"run.sh timed out after {DEFAULT_RUN_TIMEOUT_SEC}s"
-                state.set_current(status="timed_out", message=note)
-                log_error(f"Run {run_id}: {note}; moving to next range")
-                break
-
+        log_info(f"Run {run_id}: start run for range {from_seqno}-{to_seqno}")
+        exit_code, _ = _run_once(timeout_sec=DEFAULT_RUN_TIMEOUT_SEC)
+        timed_out = exit_code == 124
+        if exit_code == 0:
+            log_info(f"Run {run_id}: finished successfully")
+        elif timed_out:
+            note = f"run.sh timed out after {DEFAULT_RUN_TIMEOUT_SEC}s"
+            state.set_current(status="timed_out", message=note)
+            log_error(f"Run {run_id}: {note}; moving to next range")
+        else:
             note = f"run.sh exited with code {exit_code}"
-            state.set_current(status="restarting", message=note)
+            state.set_current(status="failed", message=note)
             log_error(f"Run {run_id}: {note}")
-            if attempt <= DEFAULT_MAX_RESTARTS:
-                time.sleep(DEFAULT_RESTART_DELAY_SEC)
 
         has_errors = _has_error_artifacts()
         archive_name = _archive_results(from_seqno, to_seqno, force=(exit_code != 0)) if (has_errors or exit_code != 0) else None
@@ -406,7 +393,6 @@ def _worker_loop(state: State) -> None:
             started_at=started,
             finished_at=_iso_now(),
             status=status,
-            attempts=attempt,
             has_errors=has_errors,
             archive_name=archive_name,
             duration_sec=duration_sec,
@@ -414,7 +400,7 @@ def _worker_loop(state: State) -> None:
         )
         state.add_record(record)
         log_info(
-            f"Run {run_id}: finished status={status}, attempts={attempt}, "
+            f"Run {run_id}: finished status={status}, "
             f"errors={has_errors}, archive={archive_name or '-'}"
         )
 
@@ -423,7 +409,6 @@ def _worker_loop(state: State) -> None:
             message="waiting for next range",
             from_seqno=from_seqno,
             to_seqno=to_seqno,
-            attempt=0,
             started_at=None,
         )
 
@@ -545,7 +530,6 @@ def _html_page(current: Dict[str, object], history: List[RunRecord], query: str,
             f"<td>{r.run_id}</td>"
             f"<td>{r.range_from}-{r.range_to}</td>"
             f"<td>{r.status}</td>"
-            f"<td>{r.attempts}</td>"
             f"<td>{r.duration_sec or '-'}s</td>"
             f"<td>{r.note or '-'}</td>"
             f"<td>{download}</td>"
@@ -677,7 +661,6 @@ a:hover {{ text-decoration: underline; }}
         <div class="kv"><b>Status:</b> {current.get('status')}</div>
         <div class="kv"><b>Message:</b> {current.get('message')}</div>
         <div class="kv"><b>Range:</b> {from_to}</div>
-        <div class="kv"><b>Attempt:</b> {current.get('attempt')}</div>
       </div>
       <div class="muted">Auto refresh every 15s</div>
     </div>
@@ -705,7 +688,6 @@ a:hover {{ text-decoration: underline; }}
             <th>Run ID</th>
             <th>Range</th>
             <th>Status</th>
-            <th>Attempts</th>
             <th>Duration</th>
             <th>Note</th>
             <th>Archive</th>
