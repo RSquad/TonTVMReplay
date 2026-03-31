@@ -223,14 +223,18 @@ class EmittedMessageProcessor:
                     else:
                         gc_state = self.r._fetch_state_for_account(gc_block_key, gc_account_addr)
                         gc_state_source = 'fetched_liteclient' if gc_state is not None else 'none'
-                self.r.account_states1[gc_block_key][gc_account_addr] = gc_state
-                # Pre-apply buffered txs (if any) to account state for this account in this block
-                gc_state, buf_count = self._emulate_buffer_txs(
-                    gc_block_key,
-                    getattr(gc_tx, 'before_txs', []) or [],
-                    gc_account_addr,
-                    gc_state
-                )
+                self.r.account_states1[gc_block_key][gc_account_addr] = gc_state # 
+                # before_states already contains the exact input state for this child tx.
+                before_txs = getattr(gc_tx, 'before_txs', []) or []
+                if gc_state_source != 'before_states':
+                    gc_state, buf_count = self._emulate_buffer_txs(
+                        gc_block_key,
+                        before_txs,
+                        gc_account_addr,
+                        gc_state
+                    )
+                else:
+                    buf_count = 0
                 # Emulate with override message via unified stepper (always compare/color)
                 step_gc = TxStepEmulator(block=self.r.blocks[gc_block_key], loglevel=self.r.loglevel,
                                          color_schema=self.r.color_schema, em=emu, account_state_em1=gc_state,
