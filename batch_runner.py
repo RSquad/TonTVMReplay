@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Continuously spawn tonemuso validators over 10-seqno windows of the TON masterchain."""
 import json
 import os
 import signal
