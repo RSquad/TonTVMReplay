@@ -49,13 +49,16 @@ def run(cfg: Config):
     unique_accounts = set()
 
     try:
-        while not scanner.done:
+        while not scanner.done and scanner.is_alive():
             tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
             success += tmp_s
             warnings.extend(tmp_w)
             unsuccess.extend(tmp_u)
             unique_accounts.update(tmp_addrs)
             sleep(1)
+
+        if not scanner.done and not scanner.is_alive():
+            logger.error("BlockScanner thread died unexpectedly — draining queue for error details")
 
         tmp_s, tmp_u, tmp_w, tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
         success += tmp_s
