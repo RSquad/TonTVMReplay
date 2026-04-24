@@ -1,6 +1,7 @@
-tonpy==0.0.0.1.4b0
 deepdiff
 cytoolz
 requests
 tqdm>=4.65.0
 loguru
+py7zr
+tonpy @ git+https://github.com/RSquad/tonpy.git@fix/blockscanner
