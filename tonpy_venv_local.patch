@@ -1,0 +1,320 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' '--exclude=*.pyo' '--exclude=*.dist-info' /tmp/tvmreplay_clean_venv/lib/python3.12/site-packages/tonpy/blockscanner/blockscanner.py my_venv/lib/python3.12/site-packages/tonpy/blockscanner/blockscanner.py
+--- /tmp/tvmreplay_clean_venv/lib/python3.12/site-packages/tonpy/blockscanner/blockscanner.py	2026-05-28 07:49:06.247821353 +0000
++++ my_venv/lib/python3.12/site-packages/tonpy/blockscanner/blockscanner.py	2026-05-14 03:00:49.585218547 +0000
+@@ -5,20 +5,21 @@
+ import traceback
+ import typing
+ from collections import defaultdict
++from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+ 
+ sys.path.append("../src")
+ 
+ import requests
+ import os
+-import signal
+ 
+ from tonpy import LiteClient, Cell, get_block_info, BlockId, BlockIdExt, \
+-    Address, Emulator, begin_cell, StackEntry, VmDict, CellSlice, SkipCryptoCurrency
++    Address, Emulator, begin_cell, StackEntry, VmDict, CellSlice, SkipCryptoCurrency, TypedVmDict
+ from tonpy.tvm.not_native.emulator_extern import EmulatorExtern
+ 
+ from tonpy.utils.shard_account import shard_is_ancestor, shard_child, shard_parent
+ from tonpy.libs.python_ton import Bits256, globalSetVerbosity
+-from tonpy.autogen.block import Account, Transaction, Block, BlockInfo, BlockExtra, MessageAny, AccountState
++from tonpy.autogen.block import Account, Transaction, Block, BlockInfo, BlockExtra, MessageAny, AccountState, ShardState, LibDescr
++from tonpy.utils.global_config import CFG_0, CFG_TEST
+ from tonpy.utils.chunks import chunks
+ from multiprocessing import Pool, get_context
+ from time import sleep, time
+@@ -126,6 +127,101 @@
+         raise NotImplementedError("Emulation not supported yet")
+ 
+ 
++def _bits256_to_hex(value):
++    if isinstance(value, str):
++        if len(value) == 256 and all(ch in "01" for ch in value):
++            return hex(int(value, 2))[2:].upper().zfill(64)
++        return value.upper()
++    return hex(int(value))[2:].upper().zfill(64)
++
++
++def _first_tx_prev_marker(txs):
++    if not txs:
++        return None
++    first_tx = min(txs, key=lambda x: int(x["lt"]))
++    tx_tlb = Transaction().cell_unpack(first_tx["tx"], True)
++    return int(tx_tlb.prev_trans_lt), _bits256_to_hex(tx_tlb.prev_trans_hash)
++
++
++def _account_state_matches_tx_prev(account_state, expected_prev):
++    if expected_prev is None:
++        return True
++    expected_lt, expected_hash = expected_prev
++    return (
++        int(account_state.last_trans_lt) == int(expected_lt)
++        and _bits256_to_hex(account_state.last_trans_hash) == expected_hash
++    )
++
++
++def _account_state_to_shard_account_cell(account_state):
++    if not account_state.root.is_null():
++        return begin_cell() \
++            .store_ref(account_state.root) \
++            .store_uint(int(account_state.last_trans_hash, 16), 256) \
++            .store_uint(account_state.last_trans_lt, 64).end_cell()
++    return begin_cell() \
++        .store_ref(begin_cell().store_uint(0, 1).end_cell()) \
++        .store_uint(int(account_state.last_trans_hash, 16), 256) \
++        .store_uint(account_state.last_trans_lt, 64) \
++        .end_cell()
++
++
++def _tx_debug_enabled():
++    return os.getenv("TONPY_TX_DEBUG_LOG", "").strip().lower() in {"1", "true", "yes"}
++
++
++def _block_debug_id(block):
++    try:
++        bid = block["block_id"]
++        return f"wc={bid.id.workchain} shard={bid.id.shard:016X} seqno={bid.id.seqno} id={bid}"
++    except Exception:
++        return f"id={block.get('block_id')}"
++
++
++def _resolve_account_state_for_block(lc, block, acc, txs):
++    expected_prev = _first_tx_prev_marker(txs)
++    state_block = block['prev_block_left'] if shard_is_ancestor(
++        block['prev_block_left'].id.shard, acc.shard_prefix(60)
++    ) else block['prev_block_right']
++    mc_ref = block.get('mc_block_id')
++    last_error = None
++    fallback_state = None
++
++    def try_block(block_id):
++        nonlocal last_error, fallback_state
++        if block_id is None:
++            return None
++        try:
++            state = lc.get_account_state(acc, block_id)
++        except Exception as exc:
++            last_error = exc
++            return None
++        fallback_state = fallback_state or state
++        return state if _account_state_matches_tx_prev(state, expected_prev) else None
++
++    # Some archive lite servers effectively resolve account state by the
++    # corresponding masterchain reference and may reject exact shard references
++    # with "different reference block". In that mode, stay on the MC path only.
++    prefer_mc = os.getenv("GET_ACCOUNT_STATE_PREFER_MC", "").strip().lower() in {"1", "true", "yes"}
++    if prefer_mc:
++        state = try_block(mc_ref)
++    else:
++        state = try_block(state_block) or try_block(mc_ref)
++    if state is not None:
++        return state
++
++    if mc_ref is not None and getattr(mc_ref, "id", None) is not None and mc_ref.id.workchain == -1:
++        depth = int(os.getenv("GET_ACCOUNT_STATE_MC_FALLBACK_DEPTH", 16))
++        for seqno in range(int(mc_ref.id.seqno) + 1, int(mc_ref.id.seqno) + depth + 1):
++            state = try_block(lc.lookup_block(BlockId(-1, 0x8000000000000000, seqno)).blk_id)
++            if state is not None:
++                return state
++
++    if fallback_state is not None:
++        return fallback_state
++    raise last_error or RuntimeError(f"Unable to resolve account state for {acc.raw}")
++
++
+ def get_mega_libs(dton_key, num_try=100):
+     """Fetch the mega_libs list from dton.io public API with retries.
+ 
+@@ -166,11 +262,23 @@
+         list: List of (block_dict, account_state_cell_or_none, txs_for_account) triples.
+     """
+     block_txs = {}
++    txdbg = _tx_debug_enabled()
++
++    if txdbg:
++        logger.warning(
++            "TXDBG process_block start {} account_blocks_present={} emulate_before_output={}",
++            _block_debug_id(block), block.get('account_blocks') is not None, emulate_before_output
++        )
+ 
+     if block['account_blocks'] is not None:
+         # load accounts from block
+         block_txs = block['account_blocks']
+         del block['account_blocks']
++        if txdbg:
++            logger.warning(
++                "TXDBG account_blocks loaded {} accounts={}",
++                _block_debug_id(block), len(block_txs)
++            )
+ 
+         for account in block_txs:
+             clear_tmp = []
+@@ -186,9 +294,19 @@
+         lt = None
+ 
+         while not ready:
++            if txdbg:
++                logger.warning(
++                    "TXDBG list_block_transactions before {} account={} lt={}",
++                    _block_debug_id(block), account_address, lt
++                )
+             answer = lc.list_block_transactions_ext(block['block_id'], 256,
+                                                     account_address=account_address,
+                                                     lt=lt)
++            if txdbg:
++                logger.warning(
++                    "TXDBG list_block_transactions after {} incomplete={} txs={}",
++                    _block_debug_id(block), answer.incomplete, len(answer.transactions)
++                )
+             ready = not answer.incomplete
+ 
+             for tx in answer.transactions:
+@@ -216,6 +334,18 @@
+     total_block_txs = []
+ 
+     for account in block_txs:
++        first_lt = None
++        try:
++            if block_txs[account]:
++                first_lt = min(int(x["lt"]) for x in block_txs[account])
++        except Exception:
++            first_lt = None
++
++        if txdbg:
++            logger.warning(
++                "TXDBG account start {} account={:064X} txs={} first_lt={}",
++                _block_debug_id(block), account, len(block_txs[account]), first_lt
++            )
+         if emulate_before_output:
+             address_acc = f"{block['block_id'].id.workchain}:{hex(account).upper()[2:].zfill(64)}"
+             acc = Address(address_acc)
+@@ -241,11 +371,21 @@
+                     .store_uint(int(account_state.last_trans_hash, 16), 256) \
+                     .store_uint(account_state.last_trans_lt, 64) \
+                     .end_cell()
++            if txdbg:
++                logger.warning(
++                    "TXDBG account_state ready {} account={:064X} first_lt={}",
++                    _block_debug_id(block), account, first_lt
++                )
+         else:
+             account_state = None
+ 
+         total_block_txs.append([block, account_state, block_txs[account]])
+ 
++    if txdbg:
++        logger.warning(
++            "TXDBG process_block done {} account_groups={}",
++            _block_debug_id(block), len(total_block_txs)
++        )
+     return total_block_txs
+ 
+ 
+@@ -417,11 +557,22 @@
+                     start = time()
+                     logger.debug(f"[shards t{thread_id}] Call process shard: {shard}")
+ 
+-                answer.extend(
+-                    process_shard(shard, lc=lc, loglevel=loglevel,
+-                                  known_shards=known_shards, stop_shards=stop_shards,
+-                                  parse_txs_over_ls=parse_txs_over_ls, load_only_known=load_only_known))
+-
++                last_exc = None
++                for attempt in range(5):
++                    try:
++                        answer.extend(
++                            process_shard(shard, lc=lc, loglevel=loglevel,
++                                          known_shards=known_shards, stop_shards=stop_shards,
++                                          parse_txs_over_ls=parse_txs_over_ls, load_only_known=load_only_known))
++                        last_exc = None
++                        break
++                    except Exception as exc:
++                        last_exc = exc
++                        logger.warning(f"[shards t{thread_id}] process_shard attempt {attempt + 1}/5 failed: {exc}")
++                        sleep(1)
++                if last_exc is not None:
++                    raise last_exc
++                        
+                 if loglevel > 3:
+                     logger.debug(f"Done process shard: {shard} at {time() - start}")
+ 
+@@ -731,17 +882,51 @@
+         for i in shards_data + mc_data:
+             keys.append(i['prev_key_block_seqno'])
+ 
+-        def get_key_block(x):
++        fallback_mode = os.getenv("TONPY_KEYBLOCK_FALLBACK", "").strip().lower()
++        timeout_sec = float(os.getenv("TONPY_KEYBLOCK_TIMEOUT_SEC", "5").strip() or "5")
++        testnet_cfg = os.getenv("TONPY_TESTNET_ZEROSTATE", "").strip().lower() in {"1", "true", "yes"}
++        force_zerostate = fallback_mode in {"zerostate", "zero", "force_zerostate"}
++
++        def get_zerostate_key_block(x, reason):
++            logger.warning(f"prepare_key_blocks: fallback to zerostate config for key block seqno={x}: {reason}")
++            cfg = CFG_TEST.copy() if testnet_cfg else CFG_0.copy()
++            fake_blk = BlockIdExt(
++                BlockId(-1, 0x8000000000000000, int(x)),
++                root_hash=0,
++                file_hash=0,
++            )
++            return {
++                'blk_id': fake_blk,
++                'config': cfg,
++            }
++
++        def load_key_block_from_network(x):
+             blk_id, config = self.lc.get_config_all(
+                 self.lc.lookup_block(BlockId(-1, 0x8000000000000000, x)).blk_id,
+                 from_not_trusted_keyblock=True)
+-
+-            config = config.get_cell().copy()
+             return {
+                 'blk_id': blk_id,
+-                'config': config
++                'config': config.get_cell().copy()
+             }
+ 
++        def get_key_block(x):
++            if force_zerostate:
++                return get_zerostate_key_block(x, "forced by TONPY_KEYBLOCK_FALLBACK")
++            try:
++                with ThreadPoolExecutor(max_workers=1) as executor:
++                    future = executor.submit(load_key_block_from_network, x)
++                    return future.result(timeout=timeout_sec)
++            except FutureTimeoutError:
++                if fallback_mode in {"zerostate_on_error", "zerostate", "zero", "force_zerostate", "auto"}:
++                    return get_zerostate_key_block(x, f"timeout after {timeout_sec}s")
++                raise
++            except Exception as e:
++                msg = str(e)
++                if fallback_mode in {"zerostate_on_error", "zerostate", "zero", "force_zerostate", "auto"} \
++                        or "Wrong constructor found at 4" in msg:
++                    return get_zerostate_key_block(x, msg)
++                raise
++
+         key_blocks = list(set(keys))
+ 
+         if self.loglevel > 1:
+@@ -845,7 +1030,7 @@
+                     for j in range(i['master'] - 16, i['master']):
+                         prev_blocks.append(known_mcs[j].to_data())
+ 
+-                    prev_100_seqno = int(i['master'] - i['master'] % 100)
++                    prev_100_seqno = int((i['master'] - 1) - (i['master'] - 1) % 100)
+                     while len(prev_blocks_100) < 16:
+                         prev_blocks_100.append(known_mcs[prev_100_seqno].to_data())
+                         if prev_100_seqno == 100:
+@@ -856,6 +1041,11 @@
+                     i['prev_block_data'] = [prev_blocks_100, prev_blocks, key['blk_id'].to_data()]
+                     known_prev_block_data[i['master']] = i['prev_block_data']
+ 
++                mc_seqno_for_state = i['master']
++                if mc_seqno_for_state in known_mcs:
++                    i['mc_block_id'] = known_mcs[mc_seqno_for_state]
++                else:
++                    i['mc_block_id'] = None
+                 i['master'] -= 1
+         else:
+             for x in mc_data:
