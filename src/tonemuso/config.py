@@ -52,6 +52,7 @@ class Config:
 
     # Debug dumps for failed transactions
     debug_dumps_dir: Optional[str] = None
+    debug_dumps_mode: str = "minimal"
 
     def liteclient_server(self) -> Dict[str, Any]:
         """Legacy method for single server. Returns first server from list or legacy config."""
@@ -180,6 +181,11 @@ class Config:
 
         # Debug dumps
         cfg.debug_dumps_dir = os.getenv("DEBUG_DUMPS_DIR")
+        dump_mode = (os.getenv("DEBUG_DUMPS_MODE", "minimal") or "minimal").strip().lower()
+        if dump_mode not in ("minimal", "full"):
+            logger.warning(f"Unknown DEBUG_DUMPS_MODE={dump_mode!r}, using 'minimal'")
+            dump_mode = "minimal"
+        cfg.debug_dumps_mode = dump_mode
         return cfg
 
     def lcparams(self) -> Dict[str, Any]:

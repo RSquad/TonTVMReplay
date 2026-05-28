@@ -1,0 +1,45 @@
+source my_venv/bin/activate
+set -a
+source .env
+set +a
+export FROM_SEQNO=59124585
+export TO_SEQNO=59124595
+export TO_SEQNO=59134045
+export FROM_SEQNO=59134041
+./run.sh
+
+
+
+
+
+
+set -a && source .env && set +a
+
+DEBUG_DUMPS_DIR=./debug_dumps_bundle_test \
+DEBUG_DUMPS_MODE=minimal \
+python3 replay_bundle_block.py \
+  --bundle-dir /home/automation/alexey/TonTVMReplay/bundles/bundle_69599093 \
+  --compare-emulators \
+  --summary-out /tmp/replay_bundle_69599093_compare.json
+
+
+
+
+source my_venv/bin/activate
+set -a && source .env && set +a
+
+DEBUG_DUMPS_DIR=./debug_dumps_bundle_test \
+DEBUG_DUMPS_MODE=minimal \
+python3 replay_bundle_block.py \
+  --bundle-dir /home/automation/alexey/TonTVMReplay/bundles/0.8000000000000000_70735584_6e3aade7_collator_test_bundle \. 
+  --compare-emulators \
+  --summary-out /tmp/replay_bundle_69599447_compare.json
+
+
+
+
+DEBUG_DUMPS_MODE=minimal \
+python3 replay_bundle_block.py \
+  --bundle-dir /home/automation/alexey/TonTVMReplay/bundles/0.8000000000000000_72118386_2439643_collator_test_bundle \
+  --compare-emulators \
+  --summary-out /tmp/replay_bundle_71093304_compare.json

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from tonemuso.diff import make_json_dumpable
 from tonemuso.utils import b64_to_hex, normalize_prev_blocks_info
-from tonemuso.emulation import TxStepEmulator, init_emulators, _get_env_int, _create_emulator, set_emulator_verbosity
+from tonemuso.emulation import TxStepEmulator, init_emulators, _get_env_int, _create_emulator, set_emulator_verbosity, load_libs_dict
 from tonemuso.trace_models import TxRecord
 from tonemuso.trace_runner import TraceOrderedRunner
 from tonemuso.debug_dumper import get_dumper, init_dumper
@@ -172,6 +172,10 @@ def _dump_prev_blocks(block: Dict[str, Any], dump_dir: Optional[str]) -> None:
         return
 
 
+def _tx_chain_broken(entries: List[Dict[str, Any]]) -> bool:
+    return any(isinstance(entry, dict) and entry.get('mode') != 'success' for entry in entries)
+
+
 @curry
 def process_blocks(data, config_override: dict = None, trace_whitelist: set = None, loglevel: int = 1,
                    color_schema: Optional[Dict[str, Any]] = None, emulator_path: Optional[str] = None,
@@ -180,7 +184,7 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     # Init dumper in worker process if not already initialized
     if debug_dumps_run_dir and get_dumper() is None:
         init_dumper(None, run_dir=debug_dumps_run_dir)
-    
+
     out = []
     block, initial_account_state, txs = data
 
@@ -196,21 +200,29 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     # Emulators
     vm_log_verbosity = _get_env_int("EMULATOR_VM_LOG_VERBOSITY", 0)
     em = _create_emulator(emulator_path, config, vm_log_verbosity)
+    
     set_emulator_verbosity(em, env_name="EMULATOR_VERBOSITY", default_level=1)
+
     em.set_rand_seed(block['rand_seed'])
+
     prev_block_data = normalize_prev_blocks_info([
         list(block['prev_block_data'][1]),
         block['prev_block_data'][2],
         list(block['prev_block_data'][0]),
     ])  # no reverse
     em.set_prev_blocks_info(prev_block_data)
-    em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
+
+    libs = load_libs_dict(block)
+    em.set_libs(libs)
 
     em2 = _create_emulator(emulator_unchanged_path, base_config, vm_log_verbosity)
     set_emulator_verbosity(em2, env_name="EMULATOR_UNCHANGED_VERBOSITY", default_level=1)
+
     em2.set_rand_seed(block['rand_seed'])
+
     em2.set_prev_blocks_info(prev_block_data)
-    em2.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
+
+    em2.set_libs(libs)
 
     # Filtering
     effective_filter = trace_whitelist or txs_whitelist
@@ -223,21 +235,35 @@ def process_blocks(data, config_override: dict = None, trace_whitelist: set = No
     txs_sorted = sorted(txs, key=lambda x: x['lt'])
     account_state_em1 = initial_account_state
     account_state_em2 = initial_account_state
+
     step = TxStepEmulator(block=block, loglevel=loglevel, color_schema=color_schema, em=em,
                           account_state_em1=account_state_em1, em2=em2, account_state_em2=account_state_em2)
-    for tx in txs_sorted:
+    
+    for tx_idx, tx in enumerate(txs_sorted):
         try:
-            if txs_whitelist is not None and tx['tx'].get_hash() not in txs_whitelist:
-                _out, account_state_em1, _ns2, _om = step.emulate(tx, extract_out_msgs=False)
-                account_state_em2 = _ns2 if _ns2 is not None else account_state_em2
-                continue
+            tx_hash = tx['tx'].get_hash()
+            # if txs_whitelist is not None and tx['tx'].get_hash() not in txs_whitelist:
+            #     _out, account_state_em1, _ns2, _om = step.emulate(tx, extract_out_msgs=False)
+            #     account_state_em2 = _ns2 if _ns2 is not None else account_state_em2
+            #     if _tx_chain_broken(_out):
+            #         logger.warning(
+            #             f"Stopping account tx chain after non-whitelisted failed tx {tx_hash} "
+            #             f"at index {tx_idx}; remaining txs would have stale prev_trans_hash"
+            #         )
+            #         break
+            #     continue
             tmp_out, account_state_em1, _ns2, _om = step.emulate(tx, extract_out_msgs=False)
             account_state_em2 = _ns2 if _ns2 is not None else account_state_em2
             out.extend(tmp_out)
+            if _tx_chain_broken(tmp_out):
+                logger.warning(
+                    f"Stopping account tx chain after failed tx {tx_hash} "
+                    f"at index {tx_idx}; remaining txs would have stale prev_trans_hash"
+                )
+                break
         except Exception as e:
-            logger.error(f"EMULATOR ERROR: Got {e} while emulating transaction! Continuing with next transaction...")
-            # Continue processing remaining transactions instead of crashing the worker
-            continue
+            logger.error(f"EMULATOR ERROR: Got {e} while emulating transaction! Stopping this account tx chain...")
+            break
     return out
 
 

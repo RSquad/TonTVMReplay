@@ -1,0 +1,5 @@
+pgrep -af 'tonemuso|run.sh'
+tail -f run_nohup.log
+
+bash get_ton_seqno.sh "2026-05-19 11"
+nohup ./run.sh > run_nohup.log 2>&1 &

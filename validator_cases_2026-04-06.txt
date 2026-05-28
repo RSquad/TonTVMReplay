@@ -1,0 +1,116 @@
+Validator cases from 2026-04-06
+
+Legend
+- shard block format: wc;shard;seqno
+- master block format: -1;8000000000000000;seqno
+
+1) Case 1
+- shard block: 0;8000000000000000;63966753
+- account: 0:448F07B4F2867FCF9ABA8944EF9F697782D247E3872EF1CDBB72F5442E32BDD8
+- lt: 68978789000003
+- tx hash:
+  D32F75B0C8F0072205BAE915F2508BE1397F084F4B31BD7E4B619B8CBE9CDC5D
+- master block: -1;8000000000000000;59119472
+- shard block link:
+  https://toncenter.com/api/v3/blocks?workchain=0&shard=8000000000000000&seqno=63966753&limit=1
+- master block link:
+  https://toncenter.com/api/v2/lookupBlock?workchain=-1&shard=8000000000000000&seqno=59119472
+- tx link:
+  https://toncenter.com/api/v3/transactions?account=0:448f07b4f2867fcf9aba8944ef9f697782d247e3872ef1cdbb72f5442e32bdd8&lt=68978789000003&limit=5&sort=desc
+- validator symptom:
+  new account state hash mismatch
+- what we reproduced:
+  tx is real, single shard replay reproduced the same type of issue
+  (state_update.new_hash mismatch)
+- current status:
+  not fixed by c7 yet
+- local dump:
+  debug_dumps/run_20260406_102107/failed/D32F75B0/emulator_test.json
+
+2) Case 2
+- shard block: 0;8000000000000000;63972057
+- account: 0:3349DDD903D5FF139DF8F3F471855A86858DE47CDE9F992D108BE5C58216E926
+- lt: 68984114000011
+- tx hash:
+  56ADB6EE894BE77CDFE23C1E5447D8D26DDA0E68EE090D6FD602875C6D29E86A
+- master block: -1;8000000000000000;59121321
+- shard block link:
+  https://toncenter.com/api/v3/blocks?workchain=0&shard=8000000000000000&seqno=63972057&limit=1
+- tx link:
+  https://toncenter.com/api/v3/transactions?account=0:3349ddd903d5ff139df8f3f471855a86858de47cde9f992d108be5c58216e926&lt=68984114000011&limit=5&sort=desc
+- validator symptom:
+  outbound messages different from that listed in the transaction
+- what we reproduced:
+  beforeC7 single shard replay gave out_msgs value mismatches and
+  action_list_hash mismatch
+- current status:
+  current binary after c7 gives success=1, warnings=0, errors=0
+  likely fixed by c7
+- local beforeC7 result:
+  runs/single/3349_case_63972057_beforeC7/result_shard.json
+- local current result:
+  runs/single/3349_case_63972057/result_shard.json
+
+3) Case 3
+- shard block: 0;8000000000000000;63981402
+- account: 0:3349DDD903D5FF139DF8F3F471855A86858DE47CDE9F992D108BE5C58216E926
+- lt: 68993499000011
+- tx hash:
+  EBCE5B0155B5D28C109E67FD67D3CE1128BDDBAFBAAB2BC06499D9C36D373282
+- master block: -1;8000000000000000;59124593
+- shard block link:
+  https://toncenter.com/api/v3/blocks?workchain=0&shard=8000000000000000&seqno=63981402&limit=1
+- tx link:
+  https://toncenter.com/api/v3/transactions?account=0:3349ddd903d5ff139df8f3f471855a86858de47cde9f992d108be5c58216e926&lt=68993499000011&limit=5&sort=desc
+- validator symptom:
+  outbound messages different from that listed in the transaction
+- status:
+  current binary after c7 gives success=1, warnings=0, errors=0
+  beforeC7 single shard replay gives out_msgs value mismatches and
+  action_list_hash mismatch
+- local beforeC7 result:
+  runs/single/3349_case_63981402_beforeC7/result_shard.json
+- local current result:
+  runs/single/3349_case_63981402/result_shard.json
+
+4) Case 4
+- shard block: 0;8000000000000000;63981562
+- account: 0:3349DDD903D5FF139DF8F3F471855A86858DE47CDE9F992D108BE5C58216E926
+- lt: 68993659000011
+- tx hash:
+  E52AB69D8801F3E8887A889378C1170003CF1057E235DFD8514CC9463A86B2FD
+- master block: -1;8000000000000000;59124651
+- shard block link:
+  https://toncenter.com/api/v3/blocks?workchain=0&shard=8000000000000000&seqno=63981562&limit=1
+- tx link:
+  https://toncenter.com/api/v3/transactions?account=0:3349ddd903d5ff139df8f3f471855a86858de47cde9f992d108be5c58216e926&lt=68993659000011&limit=5&sort=desc
+- validator symptom:
+  outbound messages different from that listed in the transaction
+- status:
+  pending single replay
+
+5) Case 5
+- shard block: 0;8000000000000000;63981570
+- account: 0:3349DDD903D5FF139DF8F3F471855A86858DE47CDE9F992D108BE5C58216E926
+- lt: 68993667000011
+- validator symptom:
+  outbound messages different from that listed in the transaction
+- status:
+  pending single replay
+
+6) Case 6
+- shard block: 0;8000000000000000;63982351
+- account: 0:3349DDD903D5FF139DF8F3F471855A86858DE47CDE9F992D108BE5C58216E926
+- lt: 68994451000011
+- known master block:
+  -1;8000000000000000;59124933
+- validator symptom:
+  outbound messages different from that listed in the transaction
+- status:
+  pending single replay
+
+Suggested next order
+1. 63981402
+2. 63981562
+3. 63981570
+4. 63982351

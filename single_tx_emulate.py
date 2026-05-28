@@ -13,6 +13,7 @@ from loguru import logger
 from tonpy.blockscanner.blockscanner import BlockId, BlockIdExt, BlockScanner, LiteClient
 
 from tonemuso.config import Config
+from tonemuso.debug_dumper import init_dumper
 from tonemuso.modes.common import process_blocks, process_result
 from tonemuso.utils import b64_to_hex
 
@@ -64,7 +65,7 @@ def _resolve_via_tonapi(tx_hash: str, base_url: str, api_key: Optional[str]) -> 
     root_hash = _normalize_hash(blk.get("root_hash", ""))
     file_hash = _normalize_hash(blk.get("file_hash", ""))
     return {
-        "hash": tx_hash.upper(),
+        "hash": _normalize_hash(tx_hash),
         "workchain": wc,
         "shard": shard,
         "seqno": seqno,
@@ -75,7 +76,7 @@ def _resolve_via_tonapi(tx_hash: str, base_url: str, api_key: Optional[str]) -> 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tx", required=True, help="tx hash (hex)")
+    ap.add_argument("--tx", required=True, help="tx hash (hex or base64)")
     ap.add_argument("--workchain", type=int)
     ap.add_argument("--shard", type=int)
     ap.add_argument("--seqno", type=int)
@@ -91,7 +92,7 @@ def main() -> int:
     ap.add_argument("--loglevel", type=int)
     args = ap.parse_args()
 
-    tx_hash = args.tx.upper()
+    tx_hash = _normalize_hash(args.tx)
 
     # Resolve block info if missing
     if any(v is None for v in (args.workchain, args.shard, args.seqno, args.root_hash, args.file_hash)):
@@ -121,6 +122,9 @@ def main() -> int:
     if args.loglevel is not None:
         cfg.loglevel = args.loglevel
 
+    dumper = init_dumper(cfg.debug_dumps_dir, mode=cfg.debug_dumps_mode)
+    debug_dumps_run_dir = dumper.run_dir if dumper else None
+
     txs_whitelist = {tx_hash}
     blocks_to_load = [
         BlockIdExt(
@@ -148,6 +152,7 @@ def main() -> int:
         emulator_path=cfg.emulator_path,
         emulator_unchanged_path=cfg.emulator_unchanged_path,
         txs_whitelist=txs_whitelist,
+        debug_dumps_run_dir=debug_dumps_run_dir,
     )
 
     scanner = BlockScanner(
@@ -170,25 +175,30 @@ def main() -> int:
         f"Block: wc={info['workchain']} shard={info['shard']} seqno={info['seqno']} "
         f"root={info['root_hash']} file={info['file_hash']}"
     )
+    if int(info["workchain"]) == -1:
+        logger.warning(
+            "Single tx emulate works best with the block that directly contains the transaction. "
+            "If this tx lives in workchain 0, pass the shard block_ref from Toncenter instead of mc_block_seqno."
+        )
 
     scanner.start()
 
     success = 0
-    warnings = 0
+    warnings = []
     unsuccess = []
     while not scanner.done:
-        tmp_s, tmp_u, tmp_w = process_result(outq, loglevel=cfg.loglevel)
+        tmp_s, tmp_u, tmp_w, _tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
         success += tmp_s
-        warnings += tmp_w
+        warnings.extend(tmp_w)
         unsuccess.extend(tmp_u)
         sleep(1)
 
-    tmp_s, tmp_u, tmp_w = process_result(outq, loglevel=cfg.loglevel)
+    tmp_s, tmp_u, tmp_w, _tmp_addrs = process_result(outq, loglevel=cfg.loglevel)
     success += tmp_s
-    warnings += tmp_w
+    warnings.extend(tmp_w)
     unsuccess.extend(tmp_u)
 
-    logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {warnings} warnings")
+    logger.warning(f"Final emulator status: {success} success, {len(unsuccess)} unsuccess, {len(warnings)} warnings")
     if unsuccess:
         cnt = Counter()
         for i in unsuccess:
@@ -197,9 +207,16 @@ def main() -> int:
         logger.error(f"Unique addreses errors: {len(cnt)}, most common: ")
         logger.error(cnt.most_common(5))
 
+    payload = {
+        "success": success,
+        "warnings_count": len(warnings),
+        "errors_count": len(unsuccess),
+        "warnings": warnings,
+        "errors": unsuccess,
+    }
     with open(args.out, "w") as f:
-        json.dump(unsuccess, f, indent=2)
-    logger.warning(f"Wrote failed txs to {args.out}")
+        json.dump(payload, f, indent=2)
+    logger.warning(f"Wrote single-tx results to {args.out}")
     return 0
 
 

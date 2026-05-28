@@ -3,6 +3,8 @@ from typing import List, Optional, Tuple, Dict, Any
 import os
 import json
 import base64
+from urllib.parse import urlencode
+from urllib.request import urlopen
 from ctypes import c_int, c_bool
 
 from tonpy import Cell, VmDict, Address
@@ -18,6 +20,7 @@ from tonemuso.debug_dumper import get_dumper
 _PRECALL_RUN_DIR: Optional[str] = None
 _MASTER_PROOF_LC = None
 _MASTER_PROOF_LC_ERR: Optional[str] = None
+_LIBS_CACHE: Dict[Tuple[str, int, int], Cell] = {}
 
 
 def _get_master_proof_liteclient():
@@ -85,6 +88,88 @@ def _create_emulator(emulator_path: str, config: VmDict, vm_log_verbosity: int) 
             return em
 
 
+def load_libs_dict(block: Dict[str, Any]) -> VmDict:
+    cell = _resolve_libs_cell(block)
+    try:
+        block["libs"] = cell.to_boc()
+    except Exception:
+        pass
+    return VmDict(256, False, cell_root=cell)
+
+
+def _clone_cell(cell: Optional[Cell]) -> Optional[Cell]:
+    if cell is None:
+        return None
+    return Cell(cell.to_boc())
+
+
+def _cell_from_raw_boc(raw: bytes) -> Cell:
+    try:
+        text = raw.decode("ascii").strip()
+        try:
+            return Cell(text)
+        except Exception:
+            return Cell(base64.b64encode(bytes.fromhex(text)).decode("ascii"))
+    except UnicodeDecodeError:
+        return Cell(base64.b64encode(raw).decode("ascii"))
+
+
+def _get_libs_seqno(block: Dict[str, Any]) -> int:
+    if block.get("master") is not None:
+        return int(block["master"])
+    mc_block_id = block.get("mc_block_id")
+    if mc_block_id is not None:
+        return int(mc_block_id.id.seqno)
+    return int(block["block_id"].id.seqno)
+
+
+def _fetch_libs_cell_from_api(block: Dict[str, Any]) -> Optional[Cell]:
+    libs_url = os.getenv("EMULATOR_LIBS_EXT_URL", "").strip()
+    if not libs_url:
+        return None
+
+    seqno = _get_libs_seqno(block)
+    interval = max(_get_env_int("EMULATOR_LIBS_UPDATE_INTERVAL", 100), 1)
+    bucket = seqno // interval
+    cache_key = (libs_url, interval, bucket)
+    cached = _LIBS_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info(f"Using emulator libs from API cache: {libs_url} seqno={seqno} bucket={bucket}")
+        return cached
+
+    url = f"{libs_url}?{urlencode({'seqno': seqno})}"
+    timeout = max(float(os.getenv("EMULATOR_LIBS_EXT_TIMEOUT", "5")), 0.1)
+    try:
+        with urlopen(url, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        dict_boc = payload.get("result", {}).get("dict_boc")
+        if not dict_boc:
+            raise ValueError("dict_boc missing in getLibrariesExt response")
+        cell = Cell(dict_boc)
+        _LIBS_CACHE[cache_key] = cell
+        logger.info(f"Using emulator libs from API: {libs_url} seqno={seqno} bucket={bucket}")
+        return cell
+    except Exception as e:
+        logger.warning(f"Failed to fetch emulator libs from API for seqno={seqno}: {e}")
+        return None
+
+
+def _resolve_libs_cell(block: Dict[str, Any]) -> Cell:
+    cell = _fetch_libs_cell_from_api(block)
+    if cell is not None:
+        return cell
+
+    libs_path = os.getenv("EMULATOR_LIBS_BOC_PATH", "").strip()
+    if libs_path:
+        with open(libs_path, "rb") as f:
+            raw = f.read().strip()
+        cell = _cell_from_raw_boc(raw)
+        logger.info(f"Using emulator libs from: {libs_path}")
+        return cell
+
+    return Cell(block['libs'])
+
+
 def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emulator_path: str,
                    emulator_unchanged_path: str) -> Tuple[EmulatorExtern, EmulatorExtern]:
     """
@@ -113,13 +198,14 @@ def init_emulators(block: Dict[str, Any], config_override: Dict[str, Any], emula
         list(block['prev_block_data'][0]),  # prev 16 by 100 (no reverse)
     ])
     em.set_prev_blocks_info(prev_block_data)
-    em.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
+    libs = load_libs_dict(block)
+    em.set_libs(libs)
 
     em2 = _create_emulator(emulator_unchanged_path, base_config, vm_log_verbosity)
     set_emulator_verbosity(em2, env_name="EMULATOR_UNCHANGED_VERBOSITY", default_level=1)
     em2.set_rand_seed(block['rand_seed'])
     em2.set_prev_blocks_info(prev_block_data)
-    em2.set_libs(VmDict(256, False, cell_root=Cell(block['libs'])))
+    em2.set_libs(libs)
 
     return em, em2
 
@@ -138,9 +224,7 @@ def set_emulator_verbosity(em: EmulatorExtern, env_name: str, default_level: int
         fn = em.libemulator.emulator_set_verbosity_level
         fn.argtypes = [c_int]
         fn.restype = c_bool
-        ok = fn(level)
-        if not ok:
-            logger.warning(f"emulator_set_verbosity_level({level}) returned false for {em.cdll_path}")
+        fn(level)
     except Exception as e:
         logger.warning(f"Failed to set emulator verbosity via {env_name}: {e}")
 
@@ -244,15 +328,19 @@ class TxStepEmulator:
 
     def _run_primary(self, in_msg: Optional[Cell], now: int, lt: int, is_tock: bool) -> bool:
         assert self.em is not None and self.state1 is not None
-        if in_msg is None:
-            return self.em.emulate_tick_tock_transaction(self.state1, is_tock, now, lt)
-        return self.em.emulate_transaction(self.state1, in_msg, now, lt)
+        state = _clone_cell(self.state1)
+        msg = _clone_cell(in_msg)
+        if msg is None:
+            return self.em.emulate_tick_tock_transaction(state, is_tock, now, lt)
+        return self.em.emulate_transaction(state, msg, now, lt)
 
     def _run_secondary(self, in_msg: Optional[Cell], now: int, lt: int, is_tock: bool) -> bool:
         assert self.em2 is not None and self.state2 is not None
-        if in_msg is None:
-            return self.em2.emulate_tick_tock_transaction(self.state2, is_tock, now, lt)
-        return self.em2.emulate_transaction(self.state2, in_msg, now, lt)
+        state = _clone_cell(self.state2)
+        msg = _clone_cell(in_msg)
+        if msg is None:
+            return self.em2.emulate_tick_tock_transaction(state, is_tock, now, lt)
+        return self.em2.emulate_transaction(state, msg, now, lt)
 
     def _extract_account_code_hash(self):
         try:
@@ -961,8 +1049,10 @@ class TxStepEmulator:
 
         # Optional pre-emulation dump for diagnostics
         self._dump_pre_emulation(tx, orig_in_msg, override_in_msg, lt, now, is_tock)
+
         # Optional master proof dump for the block
         self._dump_master_proof(lt, now)
+
         # Save state before emulation for debug dumps
         state_before = self.state1
 
@@ -970,6 +1060,7 @@ class TxStepEmulator:
         try:
             success1 = self._run_primary(override_in_msg if override_in_msg is not None else orig_in_msg,
                                          now, lt, is_tock)
+
         except Exception as e:
             logger.error(f"Primary emulator error (lt={lt}): {e}")
             success1 = False
@@ -978,6 +1069,7 @@ class TxStepEmulator:
         # Secondary (always)
         try:
             success2 = self._run_secondary(orig_in_msg, now, lt, is_tock)
+
         except Exception as e:
             logger.error(f"Secondary emulator error (lt={lt}): {e}")
             success2 = False

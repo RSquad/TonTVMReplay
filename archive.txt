@@ -1,0 +1,10 @@
+"liteservers": [
+    {
+      "ip": 1732424861,
+      "port": 3001,
+      "id": {
+        "@type": "pub.ed25519",
+        "key": "od30+8ADuWmgC+hyDxQUkOiPzx1Mwcp9Lpxf5+c+L3A="
+      }
+    }
+]

@@ -10,7 +10,7 @@ from tonemuso.debug_dumper import init_dumper, get_dumper
 
 
 def run(cfg: Config):
-    dumper = init_dumper(cfg.debug_dumps_dir)
+    dumper = init_dumper(cfg.debug_dumps_dir, mode=cfg.debug_dumps_mode)
     debug_dumps_run_dir = dumper.run_dir if dumper else None
 
     txs_whitelist = None

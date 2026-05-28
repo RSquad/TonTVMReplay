@@ -1,0 +1,17 @@
+export LITESERVER_SERVER=1546283252
+export LITESERVER_PORT=40000
+export LITESERVER_PUBKEY=UlHHRAabFKO4UYyRvrtxfWJtjCBpfyABJH7SldK43/o=
+
+export LITESERVER_TIMEOUT=60
+export EMULATOR_PREV_BLOCKS_SET_LOG=1
+export EMULATOR_PATH=rust/libemulator.so
+export TO_SEQNO=-1
+export FROM_SEQNO=-1
+export COLOR_SCHEMA_PATH=./diff_colored.json
+export EMULATOR_UNCHANGED_PATH=cpp/libemulator.so
+export TONCENTER_TRACES_BY_MASTERS=FALSE
+export NPROC=10
+export CHUNK_SIZE=10
+export TX_CHUNK_SIZE=15
+export EMUSO_LOGLEVEL=2
+export DEBUG_DUMPS_DIR=./debug_dumps

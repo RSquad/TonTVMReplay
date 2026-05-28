@@ -19,10 +19,10 @@
           }
         }
       },
-      "out_msgs": "warn"
+      "out_msgs": "alarm"
     },
     "total_fees": { "value": { "len": "warn", "value": "warn" } },
-    "state_update": "warn",
+    "state_update": "alarm",
     "description": {
       "is_tock": "alarm",
       "storage_ph": {
@@ -68,7 +68,7 @@
           "spec_actions": "alarm",
           "skipped_actions": "alarm",
           "msgs_created": "alarm",
-          "action_list_hash": "warn",
+          "action_list_hash": "alarm",
           "tot_msg_size": {
             "cells": "alarm",
             "bits": { "len": "warn", "value": "warn" }

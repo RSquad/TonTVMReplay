@@ -1,0 +1,35 @@
+block number - 58679221
+блок (-1, -9223372036854775808,58679221)
+
+get_config_all(..., from_not_trusted_keyblock=True)
+
+RuntimeError: [Error : -400 : cannot unpack extra header of key block to extract configuration]
+
+
+
+command for run:
+source my_venv/bin/activate
+python3 get_config_all_probe.py \
+  --host 1732424861 \
+  --port 3001 \
+  --pubkey 'od30+8ADuWmgC+hyDxQUkOiPzx1Mwcp9Lpxf5+c+L3A=' \
+  --key-seqno 58679221
+
+64008397
+
+source my_venv/bin/activate
+set -a
+source .env
+set +a
+
+mkdir -p runs/single/case_64008397
+
+python3 single_tx_emulate.py \
+  --tx 'sqG11UgaDamx5ZeG/pxrVilKbuGc/EIZ+xBxl0RtKaE=' \
+  --workchain 0 \
+  --shard 9223372036854775808 \
+  --seqno 64008397 \
+  --root-hash 'gb2zHYAexqPQSp0pbmHlBem2otuF6z/6/LUrlWH7s4c=' \
+  --file-hash '+KLUwBqzzSVaEQovcW+ecWwHLC/qZr/AFM8wvY/rWws=' \
+  --out runs/single/case_64008397/result_shard.json \
+  > runs/single/case_64008397/single_tx_shard.log 2>&1

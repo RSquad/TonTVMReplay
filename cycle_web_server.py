@@ -9,7 +9,6 @@ import time
 import traceback
 import urllib.error
 import urllib.request
-import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -17,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlsplit
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parent
@@ -32,6 +32,46 @@ DEFAULT_POLL_SEC = int(os.getenv("CYCLE_POLL_SEC", "60"))
 DEFAULT_HOST = os.getenv("CYCLE_WEB_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.getenv("CYCLE_WEB_PORT", "8090"))
 TONCENTER_INFO_URL = os.getenv("TONCENTER_INFO_URL", "https://toncenter.com/api/v2/getMasterchainInfo")
+ARCHIVE_FORMAT = (os.getenv("ARCHIVE_FORMAT", "7z") or "7z").strip().lower()
+
+_ARCHIVE_FORMAT_WARNED = False
+
+
+def _effective_archive_format() -> str:
+    global _ARCHIVE_FORMAT_WARNED
+    if ARCHIVE_FORMAT == "zip":
+        return "zip"
+    if ARCHIVE_FORMAT == "7z":
+        try:
+            import py7zr  # noqa: F401
+            return "7z"
+        except Exception:
+            if not _ARCHIVE_FORMAT_WARNED:
+                log_error("ARCHIVE_FORMAT=7z requested, but py7zr is not installed. Falling back to zip.")
+                _ARCHIVE_FORMAT_WARNED = True
+            return "zip"
+    if not _ARCHIVE_FORMAT_WARNED:
+        log_error(f"Unknown ARCHIVE_FORMAT={ARCHIVE_FORMAT!r}. Falling back to zip.")
+        _ARCHIVE_FORMAT_WARNED = True
+    return "zip"
+
+
+def _archive_extension() -> str:
+    return ".7z" if _effective_archive_format() == "7z" else ".zip"
+
+
+def _write_archive(archive_path: Path, items: List[Tuple[Path, str]]) -> None:
+    archive_format = _effective_archive_format()
+    if archive_format == "7z":
+        import py7zr
+        with py7zr.SevenZipFile(archive_path, "w") as zf:
+            for path, arcname in items:
+                zf.write(path, arcname=arcname)
+        return
+
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path, arcname in items:
+            zf.write(path, arcname=arcname)
 
 
 class DailyZipLogger:
@@ -47,13 +87,13 @@ class DailyZipLogger:
     def _archive_current_log(self, day: str) -> None:
         if not self.log_path.exists() or self.log_path.stat().st_size == 0:
             return
-        base_name = f"cycle_run_{day}.zip"
-        zip_path = self.archive_dir / base_name
-        if zip_path.exists():
+        ext = _archive_extension()
+        base_name = f"cycle_run_{day}{ext}"
+        archive_path = self.archive_dir / base_name
+        if archive_path.exists():
             ts = datetime.now(timezone.utc).strftime("%H%M%S")
-            zip_path = self.archive_dir / f"cycle_run_{day}_{ts}.zip"
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            zf.write(self.log_path, arcname="cycle_run.log")
+            archive_path = self.archive_dir / f"cycle_run_{day}_{ts}{ext}"
+        _write_archive(archive_path, [(self.log_path, "cycle_run.log")])
 
     def _rotate_if_needed(self, now_dt: datetime) -> None:
         today = now_dt.date().isoformat()
@@ -152,16 +192,26 @@ def _load_state() -> List[RunRecord]:
         for item in raw:
             # Backward compatibility with old saved records.
             item.pop("attempts", None)
-            out.append(RunRecord(**item))
+            record = RunRecord(**item)
+            archive_name = record.archive_name
+            if archive_name is not None and not (REPORTS_DIR / archive_name).exists():
+                continue
+            out.append(record)
         return out
     except Exception:
         return []
 
 
 def _save_state(items: List[RunRecord]) -> None:
+    filtered: List[RunRecord] = []
+    for item in items:
+        archive_name = item.archive_name
+        if archive_name is not None and not (REPORTS_DIR / archive_name).exists():
+            continue
+        filtered.append(item)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     tmp = STATE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps([asdict(i) for i in items], ensure_ascii=True, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps([asdict(i) for i in filtered], ensure_ascii=True, indent=2), encoding="utf-8")
     tmp.replace(STATE_PATH)
 
 
@@ -212,7 +262,16 @@ def _debug_dumps_non_empty() -> bool:
     return False
 
 
-def _has_error_artifacts() -> bool:
+def _debug_failed_non_empty() -> bool:
+    if not DEBUG_DUMPS_DIR.exists() or not DEBUG_DUMPS_DIR.is_dir():
+        return False
+    for path in DEBUG_DUMPS_DIR.rglob("*"):
+        if path.is_file() and "failed" in path.parts:
+            return True
+    return False
+
+
+def _has_failed_artifacts() -> bool:
     checks = [
         ROOT / "failed_txs_pretty.json",
         ROOT / "failed_txs.json",
@@ -221,7 +280,16 @@ def _has_error_artifacts() -> bool:
     for item in checks:
         if item.exists() and item.stat().st_size > 0:
             return True
-    return _debug_dumps_non_empty()
+    return _debug_failed_non_empty()
+
+
+def _has_warning_artifacts() -> bool:
+    if not DEBUG_DUMPS_DIR.exists() or not DEBUG_DUMPS_DIR.is_dir():
+        return False
+    for path in DEBUG_DUMPS_DIR.rglob("warnings.json"):
+        if path.is_file() and path.stat().st_size > 2:
+            return True
+    return False
 
 
 def _tonemuso_log_requires_live_seqno() -> bool:
@@ -237,33 +305,35 @@ def _tonemuso_log_requires_live_seqno() -> bool:
 
 def _build_archive_name(range_from: int, range_to: int) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return f"report_{range_from}_{range_to}_{ts}.zip"
+    return f"report_{range_from}_{range_to}_{ts}{_archive_extension()}"
 
 
-def _archive_results(range_from: int, range_to: int, force: bool = False) -> Optional[str]:
-    if not force and not _has_error_artifacts():
+def _archive_results(range_from: int, range_to: int) -> Optional[str]:
+    if not _has_failed_artifacts():
         return None
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     archive_name = _build_archive_name(range_from, range_to)
     archive_path = REPORTS_DIR / archive_name
 
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for rel in [
-            "failed_txs_pretty.json",
-            "failed_txs.json",
-            "failed_traces.json",
-            "emulation_report.html",
-            "tonemuso_run.log",
-        ]:
-            p = ROOT / rel
-            if p.exists() and p.is_file():
-                zf.write(p, arcname=rel)
+    items: List[Tuple[Path, str]] = []
+    for rel in [
+        "failed_txs_pretty.json",
+        "failed_txs.json",
+        "failed_traces.json",
+        "emulation_report.html",
+        "tonemuso_run.log",
+    ]:
+        p = ROOT / rel
+        if p.exists() and p.is_file():
+            items.append((p, rel))
 
-        if DEBUG_DUMPS_DIR.exists() and DEBUG_DUMPS_DIR.is_dir():
-            for path in DEBUG_DUMPS_DIR.rglob("*"):
-                if path.is_file():
-                    zf.write(path, arcname=str(path.relative_to(ROOT)))
+    if DEBUG_DUMPS_DIR.exists() and DEBUG_DUMPS_DIR.is_dir():
+        for path in DEBUG_DUMPS_DIR.rglob("*"):
+            if path.is_file():
+                items.append((path, str(path.relative_to(ROOT))))
+
+    _write_archive(archive_path, items)
 
     return archive_name
 
@@ -368,23 +438,31 @@ def _worker_loop(state: State) -> None:
             state.set_current(status="failed", message=note)
             log_error(f"Run {run_id}: {note}")
 
-        has_errors = _has_error_artifacts()
-        archive_name = _archive_results(from_seqno, to_seqno, force=(exit_code != 0)) if (has_errors or exit_code != 0) else None
+        has_errors = _has_failed_artifacts()
+        has_warnings = _has_warning_artifacts()
+        archive_name = _archive_results(from_seqno, to_seqno) if has_errors else None
         duration_sec = int(time.time() - run_start)
 
         if exit_code == 0:
             status = "success_with_errors" if has_errors else "success_clean"
             if has_errors:
                 note = note or "errors found, archive created"
+            elif has_warnings:
+                note = "warnings only; no failed txs, archive skipped"
             else:
                 note = "no errors in range"
         elif timed_out:
             status = "timed_out"
-            note = note or f"timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; moved to next range"
+            if has_errors:
+                note = note or f"timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; failed txs archived"
+            else:
+                note = note or f"timed out after {DEFAULT_RUN_TIMEOUT_SEC}s; no failed txs, archive skipped"
         else:
             status = "failed"
             if note is None:
                 note = f"failed with code {exit_code}"
+            if not has_errors:
+                note = f"{note}; no failed txs, archive skipped"
 
         record = RunRecord(
             run_id=run_id,

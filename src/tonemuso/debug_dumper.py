@@ -110,8 +110,9 @@ def _prev_blocks_to_boc_base64(prev_blocks: List[Any]) -> Optional[str]:
 class DebugDumper:
     """Manages debug dump directory and saves failed transaction data."""
 
-    def __init__(self, base_dir: str, run_dir: Optional[str] = None):
+    def __init__(self, base_dir: str, run_dir: Optional[str] = None, mode: str = "minimal"):
         self.base_dir = base_dir
+        self.mode = mode if mode in ("minimal", "full") else "minimal"
         if run_dir:
             self.run_dir = run_dir
         else:
@@ -127,18 +128,19 @@ class DebugDumper:
         folder = os.path.join(self.failed_dir, tx_prefix)
         os.makedirs(folder, exist_ok=True)
 
-        _save_boc(dump.account_before, os.path.join(folder, "account_before.boc"))
-        _save_boc(dump.in_msg, os.path.join(folder, "in_msg.boc"))
-        _save_boc(dump.expected_tx, os.path.join(folder, "expected_tx.boc"))
-        _save_boc(dump.em1_tx, os.path.join(folder, "em1_tx.boc"))
-        _save_boc(dump.em2_tx, os.path.join(folder, "em2_tx.boc"))
-        _save_boc(dump.em1_account_after, os.path.join(folder, "em1_account_after.boc"))
-        _save_boc(dump.em2_account_after, os.path.join(folder, "em2_account_after.boc"))
-        _save_boc(dump.config_cell, os.path.join(folder, "config.boc"))
-        _save_boc(dump.libs_cell, os.path.join(folder, "libs.boc"))
+        if self.mode == "full":
+            _save_boc(dump.account_before, os.path.join(folder, "account_before.boc"))
+            _save_boc(dump.in_msg, os.path.join(folder, "in_msg.boc"))
+            _save_boc(dump.expected_tx, os.path.join(folder, "expected_tx.boc"))
+            _save_boc(dump.em1_tx, os.path.join(folder, "em1_tx.boc"))
+            _save_boc(dump.em2_tx, os.path.join(folder, "em2_tx.boc"))
+            _save_boc(dump.em1_account_after, os.path.join(folder, "em1_account_after.boc"))
+            _save_boc(dump.em2_account_after, os.path.join(folder, "em2_account_after.boc"))
+            _save_boc(dump.config_cell, os.path.join(folder, "config.boc"))
+            _save_boc(dump.libs_cell, os.path.join(folder, "libs.boc"))
 
-        _save_json(dump.block_info, os.path.join(folder, "block_info.json"))
-        _save_json(dump.prev_blocks, os.path.join(folder, "prev_blocks.json"))
+            _save_json(dump.block_info, os.path.join(folder, "block_info.json"))
+            _save_json(dump.prev_blocks, os.path.join(folder, "prev_blocks.json"))
 
         error_full = {
             **dump.error_info,
@@ -227,13 +229,15 @@ class DebugDumper:
         em1_account: Optional[Cell],
         em2_account: Optional[Cell],
         error_info: Dict[str, Any],
+        expected_tx: Optional[Cell] = None,
+        tx_hash_override: Optional[str] = None,
     ) -> str:
         """
         Save debug dump using data available in emulation context.
         This is the main entry point called from common.py/emulation.py
         """
-        tx_cell = tx['tx']
-        tx_hash = tx_cell.get_hash()
+        tx_cell = expected_tx if expected_tx is not None else tx['tx']
+        tx_hash = tx_hash_override or tx_cell.get_hash()
 
         cs = tx_cell.begin_parse()
         tmp = cs.load_ref(as_cs=True)
@@ -281,11 +285,12 @@ class DebugDumper:
 _GLOBAL_DUMPER: Optional[DebugDumper] = None
 
 
-def init_dumper(base_dir: Optional[str], run_dir: Optional[str] = None) -> Optional[DebugDumper]:
+def init_dumper(base_dir: Optional[str], run_dir: Optional[str] = None, mode: Optional[str] = None) -> Optional[DebugDumper]:
     """Initialize global dumper. Call once at startup."""
     global _GLOBAL_DUMPER
     if base_dir or run_dir:
-        _GLOBAL_DUMPER = DebugDumper(base_dir or "", run_dir=run_dir)
+        dump_mode = (mode or os.getenv("DEBUG_DUMPS_MODE", "minimal") or "minimal").strip().lower()
+        _GLOBAL_DUMPER = DebugDumper(base_dir or "", run_dir=run_dir, mode=dump_mode)
     return _GLOBAL_DUMPER
 
 
